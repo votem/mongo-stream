@@ -3,3 +3,4 @@ env/*
 *.pem
 resumeToken
 !/env/test.env
+docker-compose.yaml
