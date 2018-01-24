@@ -1,0 +1,25 @@
+{
+  "name": "mongo-stream",
+  "version": "0.1.0",
+  "description": "Sync data from Mongodb to Elasticsearch",
+  "main": "poc.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/everyone-counts/mongo-stream"
+  },
+  "keywords": [
+    "mongo",
+    "elasticsearch",
+    "node",
+    "changestream"
+  ],
+  "author": "Ben Davis <bjamin.davis@gmail.com> (https://github.com/badavis)",
+  "license": "MIT",
+  "dependencies": {
+    "bson": "^1.0.4",
+    "mongodb": "^3.0.1"
+  }
+}
