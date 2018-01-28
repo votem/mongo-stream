@@ -1,6 +1,8 @@
+.idea/*
 node_modules
 env/*
 *.pem
 resumeToken
 !/env/test.env
 docker-compose.yaml
+package-lock.json
