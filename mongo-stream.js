@@ -6,127 +6,102 @@ const MongoClient = require('mongodb').MongoClient;
 
 
 class MongoStream {
-  constructor(esClient, db) {
+  constructor(esClient, db, limit) {
     this.esClient = esClient;
     this.db = db;
     this.changeStreams = {};
+    this.dumpLimit = limit;
   }
 
   // constructs and returns a new MongoStream
-  static async init() {
-    const { url, mongoOpts } = MongoStream.setMongoOpts();
-    const dbName = process.env.MONGO_DB;
-    const elasticOpts = {
-      host: process.env.ELASTIC_HOST,
-      apiVersion: process.env.ELASTIC_API_VER
-    };
+  static async init(options) {
+    const client = await MongoClient.connect(options.url, options.mongoOpts);
+    const db = client.db(options.db);
+    const esClient = new elasticsearch.Client(options.elasticOpts);
+    const mongoStream = new MongoStream(esClient, db, options.dumpLimit);
 
-    const client = await MongoClient.connect(url, mongoOpts);
-    const db = client.db(dbName);
-    const esClient = new elasticsearch.Client(elasticOpts);
-    const mongoStream = new MongoStream(esClient, db);
-
-    // parse inclusive/exclusive collection list, set up security before adding a changestream
-    let collectionSecurity;
-    if (process.env.COLL_INCLUSIVE) {
-      const inclusiveCollections = JSON.parse(process.env.COLL_INCLUSIVE);
-      collectionSecurity = function(collectionName) {
-        return inclusiveCollections.indexOf(collectionName) > -1;
+    let filterFunction;
+    if (options.coll_inclusive) {
+      filterFunction = function (collectionName) {
+        return options.coll_inclusive.indexOf(collectionName) > -1;
       }
     }
-    if (process.env.COLL_EXCLUSIVE) {
-      const exclusiveCollections = JSON.parse(process.env.COLL_EXCLUSIVE);
-      collectionSecurity = function(collectionName) {
-        return exclusiveCollections.indexOf(collectionName) === -1;
+    else if (options.coll_exclusive) {
+      filterFunction = function (collectionName) {
+        return options.coll_exclusive.indexOf(collectionName) === -1;
+      }
+    }
+    else {
+      filterFunction = function (collectionName) {
+        return true;
       }
     }
 
     const collections = await db.collections();
     for (let i = 0; i < collections.length; i++) {
       const collectionName = collections[i].collectionName;
-      if (!collectionSecurity(collectionName)) continue;
+      if (!filterFunction(collectionName)) continue;
       mongoStream.addChangeStream(collectionName);
     }
 
     return mongoStream;
   }
 
-  static setMongoOpts() {
-    let url = process.env.MONGO_RS;
-    let mongoOpts = {};
-
-    // if MongoDB requires SSL connection, configure options here
-    if (process.env.ROOT_FILE_PATH) {
-      const ca = fs.readFileSync(process.env.ROOT_FILE_PATH);
-      const cert = fs.readFileSync(process.env.KEY_FILE_PATH);
-      const key = fs.readFileSync(process.env.KEY_FILE_PATH);
-
-      mongoOpts = {
-        ssl: true,
-        sslCA: ca,
-        sslKey: key,
-        sslCert: cert
-      };
-
-      const user = encodeURIComponent(process.env.MONGO_USER);
-      url = f('mongodb://%s@%s', user, process.env.MONGO_RS)
-    }
-
-    return {url, mongoOpts};
-  }
-
   // delete all docs in ES before dumping the new docs into it
-  // There's a better way to do this, I'm sure, but I'll figure it out later
-  async deleteESCollection(collectionName, limit) {
-    let allESDocks;
+  async deleteESCollection(collectionName) {
+    let searchResponse;
     try {
       // First get a count for all ES docs of the specified type
-      allESDocks = await this.esClient.count({
+      searchResponse = await this.esClient.search({
         index: this.db.databaseName,
-        type: collectionName
+        type: collectionName,
+        size: this.dumpLimit,
+        scroll: '1m'
       });
     }
-    catch(err) {
-      // if the count query failed, the index or type does not exist
-      allESDocks = {count: 0}
+    catch (err) {
+      // if the search query failed, the index or type does not exist
+      searchResponse = {hits: {total: 0}};
     }
 
     // loop through all existing esdocks in increments of bulksize, then delete them
     let numDeleted = 0;
-    for (let i = 0; i < Math.ceil(allESDocks.count / limit); i++) {
-      const searchResponse = await this.esClient.search({
-        index: this.db.databaseName,
-        type: collectionName,
-        from: limit * i,
-        size: limit
-      });
+    for (let i = 0; i < Math.ceil(searchResponse.hits.total / this.dumpLimit); i++) {
       const bulkDelete = [];
       const dumpDocs = searchResponse.hits.hits;
       for (let j = 0; j < dumpDocs.length; j++) {
-        bulkDelete.push({delete: {_index: this.db.databaseName, _type: collectionName, _id: dumpDocs[j]._id}})
+        bulkDelete.push({
+          delete: {
+            _index: this.db.databaseName,
+            _type: collectionName,
+            _id: dumpDocs[j]._id
+          }
+        });
       }
       numDeleted += bulkDelete.length;
-      console.log(`${collectionName} delete progress: ${numDeleted}/${allESDocks.count}`);
+      console.log(`${collectionName} delete progress: ${numDeleted}/${searchResponse.hits.total}`);
+      searchResponse = await this.esClient.scroll({
+        scrollId: searchResponse._scroll_id,
+        scroll: '1m'
+      });
       await this.sendBulkRequest(bulkDelete);
     }
-
     return numDeleted;
   }
 
   // overwrites an entire elasticsearch collection with the current collection state in mongodb
   async collectionDump(collectionName) {
     console.log(`dumping from ${collectionName}`);
-    const limit = process.env.BULK_LIMIT;
 
-    await this.deleteESCollection(collectionName, limit);
+    await this.deleteESCollection(collectionName);
 
     // count and replicate documents from mongo into elasticsearch
     const count = await this.db.collection(collectionName).count();
     let bulkOpsDone = 0;
-    for (let i = 0; i < Math.ceil(count / limit); i++) {
+    for (let i = 0; i < Math.ceil(count / this.dumpLimit); i++) {
       const docPack = await this.db.collection(collectionName).find({}, {
-        limit: limit,
-        skip: i * limit
+        limit: this.dumpLimit,
+        skip: i * this.dumpLimit
       }).toArray();
       const bulkOp = [];
       for (let j = 0; j < docPack.length; j++) {
