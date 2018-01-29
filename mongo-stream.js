@@ -32,8 +32,9 @@ class MongoStream {
       }
     }
     else {
+      // if inclusive/exclusive is not declared, no change streams are added, they must be added manually
       filterFunction = function (collectionName) {
-        return true;
+        return false;
       }
     }
 
