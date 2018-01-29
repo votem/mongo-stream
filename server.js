@@ -28,6 +28,7 @@ app.get('/monitor', (request, response) => {
             responseBody[changeStreams[i]] = 'Not Listening'
         }
     }
+
     response.send(JSON.stringify(responseBody, null, 2));
 });
 
@@ -49,7 +50,7 @@ app.listen(port, (err) => {
         return console.log(`Error listening on ${port}: `, err)
     }
 
-    MongoStream.init('mongodb://localhost:27017', {}, 'vrs').then((stream) => {
+    MongoStream.init('mongodb://localhost:27017', {}, 'vrs', {host: 'localhost:9200', apiVersion: '2.4'}).then((stream) => {
         console.log('connected');
         mongoStream = stream;
     });

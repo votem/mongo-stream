@@ -6,27 +6,73 @@ const MongoClient = require('mongodb').MongoClient;
 
 
 class MongoStream {
-  constructor(db) {
-    this.esClient = new elasticsearch.Client({host: 'localhost:9200', apiVersion: '2.4'});
+  constructor(esClient, db) {
+    this.esClient = esClient;
     this.db = db;
     this.changeStreams = {};
   }
 
   // constructs and returns a new MongoStream
-  static async init(url, options, dbName) {
-    const client = await MongoClient.connect(url, options);
-    const db = client.db(dbName);
-    const mongoStream = new MongoStream(db);
+  static async init() {
+    const { url, mongoOpts } = MongoStream.setMongoOpts();
+    const dbName = process.env.MONGO_DB;
+    const elasticOpts = {
+      host: process.env.ELASTIC_HOST,
+      apiVersion: process.env.ELASTIC_API_VER
+    };
 
-    // add listeners to all collections in our database
+    const client = await MongoClient.connect(url, mongoOpts);
+    const db = client.db(dbName);
+    const esClient = new elasticsearch.Client(elasticOpts);
+    const mongoStream = new MongoStream(esClient, db);
+
+    // parse inclusive/exclusive collection list, set up security before adding a changestream
+    let collectionSecurity;
+    if (process.env.COLL_INCLUSIVE) {
+      const inclusiveCollections = JSON.parse(process.env.COLL_INCLUSIVE);
+      collectionSecurity = function(collectionName) {
+        return inclusiveCollections.indexOf(collectionName) > -1;
+      }
+    }
+    if (process.env.COLL_EXCLUSIVE) {
+      const exclusiveCollections = JSON.parse(process.env.COLL_EXCLUSIVE);
+      collectionSecurity = function(collectionName) {
+        return exclusiveCollections.indexOf(collectionName) === -1;
+      }
+    }
+
     const collections = await db.collections();
     for (let i = 0; i < collections.length; i++) {
       const collectionName = collections[i].collectionName;
-      if (collectionName !== 'voter') continue; // right now, we're only listening to the voter collection
+      if (!collectionSecurity(collectionName)) continue;
       mongoStream.addChangeStream(collectionName);
     }
 
     return mongoStream;
+  }
+
+  static setMongoOpts() {
+    let url = process.env.MONGO_RS;
+    let mongoOpts = {};
+
+    // if MongoDB requires SSL connection, configure options here
+    if (process.env.ROOT_FILE_PATH) {
+      const ca = fs.readFileSync(process.env.ROOT_FILE_PATH);
+      const cert = fs.readFileSync(process.env.KEY_FILE_PATH);
+      const key = fs.readFileSync(process.env.KEY_FILE_PATH);
+
+      mongoOpts = {
+        ssl: true,
+        sslCA: ca,
+        sslKey: key,
+        sslCert: cert
+      };
+
+      const user = encodeURIComponent(process.env.MONGO_USER);
+      url = f('mongodb://%s@%s', user, process.env.MONGO_RS)
+    }
+
+    return {url, mongoOpts};
   }
 
   // delete all docs in ES before dumping the new docs into it
@@ -68,8 +114,9 @@ class MongoStream {
   }
 
   // overwrites an entire elasticsearch collection with the current collection state in mongodb
-  async collectionDump(collectionName, limit = 100) {
+  async collectionDump(collectionName) {
     console.log(`dumping from ${collectionName}`);
+    const limit = process.env.BULK_LIMIT;
 
     await this.deleteESCollection(collectionName, limit);
 
@@ -118,7 +165,7 @@ class MongoStream {
   }
 
   async addChangeStream(collectionName) {
-    const resumeToken = this.parseResumeToken(collectionName);
+    const resumeToken = MongoStream.parseResumeToken(collectionName);
     if (!resumeToken) await this.collectionDump(collectionName);
     if (this.changeStreams[collectionName]) {
       console.log('change stream already exists, removing...');
