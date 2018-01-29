@@ -2,7 +2,7 @@
 node_modules
 env/*
 *.pem
-resumeToken
+resumeTokens/*
 !/env/test.env
 docker-compose.yaml
 package-lock.json
