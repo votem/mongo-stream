@@ -48,7 +48,7 @@ class MongoStream {
   }
 
   // delete all docs in ES before dumping the new docs into it
-  async deleteESCollection(collectionName) {
+  async deleteElasticCollection(collectionName) {
     let searchResponse;
     try {
       // First get a count for all ES docs of the specified type
@@ -93,7 +93,10 @@ class MongoStream {
   async collectionDump(collectionName) {
     console.log(`dumping from ${collectionName}`);
 
-    await this.deleteESCollection(collectionName);
+    // since we're dumping the collection, remove the resume token
+    if(fs.existsSync(`./resumeTokens/${collectionName}`)) fs.unlink(`./resumeTokens/${collectionName}`);
+
+    await this.deleteElasticCollection(collectionName);
 
     // count and replicate documents from mongo into elasticsearch
     const count = await this.db.collection(collectionName).count();
@@ -158,7 +161,9 @@ class MongoStream {
   }
 
   removeChangeStream(collectionName) {
-    this.changeStreams[collectionName].close();
+    if (this.changeStreams[collectionName])
+      this.changeStreams[collectionName].close();
+
     this.changeStreams[collectionName] = null;
   }
 

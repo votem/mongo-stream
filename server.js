@@ -1,24 +1,15 @@
 const express = require('express');
 const f = require('util').format;
+const fs = require('fs');
+
 const app = express();
 const port = 8421;
 
 const MongoStream = require('./mongo-stream');
 let mongoStream;
 
-app.get('/', (request, response) => {
-  response.send('Hello from Express!')
-});
-
-// triggers a manual collection dump for the specified collection
-app.get('/dump/:collection', (request, response) => {
-  console.log(`dumping collection ${request.params.collection} to ES`);
-  mongoStream.collectionDump(request.params.collection);
-  response.send(`dumping collection ${request.params.collection} to ES`);
-});
-
 // returns the status of all change streams currently running
-app.get('/monitor', (request, response) => {
+app.get('/', (request, response) => {
   const changeStreams = Object.keys(mongoStream.changeStreams);
   const responseBody = {};
   for (let i = 0; i < changeStreams.length; i++) {
@@ -30,7 +21,14 @@ app.get('/monitor', (request, response) => {
     }
   }
 
-  response.send(JSON.stringify(responseBody, null, 2));
+  response.send(responseBody);
+});
+
+// triggers a manual collection dump for the specified collection
+app.get('/dump/:collection', (request, response) => {
+  console.log(`dumping collection ${request.params.collection} to ES`);
+  mongoStream.collectionDump(request.params.collection);
+  response.send(`dumping collection ${request.params.collection} to ES`);
 });
 
 // starts listening to the change stream of the specified collection
@@ -83,7 +81,7 @@ app.listen(port, (err) => {
     dumpLimit: Number(process.env.BULK_SIZE)
   };
 
-  // parse inclusive/exclusive collection list, set up security before adding a changestream
+  // parse inclusive/exclusive collection list, set up filtering before adding a change stream
   if (process.env.COLL_INCLUSIVE) {
     initOpts.coll_inclusive = JSON.parse(process.env.COLL_INCLUSIVE);
   }
@@ -95,6 +93,10 @@ app.listen(port, (err) => {
     .then((stream) => {
       console.log('connected');
       mongoStream = stream;
+    })
+    .catch((err) => {
+      console.log(`Error Creating MongoStream: ${err.message}`);
+      process.exit();
     });
   console.log(`server is listening on port ${port}`);
 });
