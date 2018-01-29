@@ -3,7 +3,7 @@ const f = require('util').format;
 const fs = require('fs');
 
 const app = express();
-const port = 8421;
+const port = process.env.MS_ADMIN_PORT || '3000';
 
 const MongoStream = require('./mongo-stream');
 let mongoStream;
