@@ -2,9 +2,9 @@
   "name": "mongo-stream",
   "version": "0.1.0",
   "description": "Sync data from Mongodb to Elasticsearch",
-  "main": "poc.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node poc.js",
+    "start": "node server.js",
     "test": "test"
   },
   "repository": {

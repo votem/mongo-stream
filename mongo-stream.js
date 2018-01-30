@@ -18,82 +18,54 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     const esClient = new elasticsearch.Client(options.elasticOpts);
-    const mongoStream = new MongoStream(esClient, db, options.dumpLimit);
-
-    let filterFunction;
-    if (options.coll_inclusive) {
-      filterFunction = function (collectionName) {
-        return options.coll_inclusive.indexOf(collectionName) > -1;
-      }
-    }
-    else if (options.coll_exclusive) {
-      filterFunction = function (collectionName) {
-        return options.coll_exclusive.indexOf(collectionName) === -1;
-      }
-    }
-    else {
-      // if inclusive/exclusive is not declared, no change streams are added, they must be added manually
-      filterFunction = function (collectionName) {
-        return false;
-      }
-    }
-
-    const collections = await db.collections();
-    for (let i = 0; i < collections.length; i++) {
-      const collectionName = collections[i].collectionName;
-      if (!filterFunction(collectionName)) continue;
-      mongoStream.addChangeStream(collectionName);
-    }
-
-    return mongoStream;
+    return new MongoStream(esClient, db, options.dumpLimit);
   }
 
-  // delete all docs in ES before dumping the new docs into it
-  async deleteElasticCollection(collectionName) {
-    let searchResponse;
-    try {
-      // First get a count for all ES docs of the specified type
-      searchResponse = await this.esClient.search({
-        index: this.db.databaseName,
-        type: collectionName,
-        size: this.dumpLimit,
-        scroll: '1m'
-      });
+  // filters through collections and executes the specified operation on them
+  // @param opts: {
+  //   filterArray: an array used to filter through mongo collections
+  //   filterType: the type of filter to use with the given filterArray (inclusive or exclusive)
+  //   operation: the operation to apply to the specified collections (dump, add, or remove)
+  // }
+  async filterAndExecute(opts) {
+    // Filter
+    let filteredCollections;
+    if (!opts.filterType || opts.filterType === 'inclusive') {
+      filteredCollections = opts.filterArray;
     }
-    catch (err) {
-      // if the search query failed, the index or type does not exist
-      searchResponse = {hits: {total: 0}};
-    }
-
-    // loop through all existing esdocks in increments of bulksize, then delete them
-    let numDeleted = 0;
-    for (let i = 0; i < Math.ceil(searchResponse.hits.total / this.dumpLimit); i++) {
-      const bulkDelete = [];
-      const dumpDocs = searchResponse.hits.hits;
-      for (let j = 0; j < dumpDocs.length; j++) {
-        bulkDelete.push({
-          delete: {
-            _index: this.db.databaseName,
-            _type: collectionName,
-            _id: dumpDocs[j]._id
-          }
-        });
+    else if (opts.filterType === 'exclusive') {
+      const mongoCollections = await this.db.collections();
+      const collections = [];
+      for (let i = 0; i < mongoCollections.length; i++) {
+        if (opts.filterArray.indexOf(mongoCollections[i].collectionName) === -1)
+          collections.push(mongoCollections[i].collectionName);
       }
-      numDeleted += bulkDelete.length;
-      console.log(`${collectionName} delete progress: ${numDeleted}/${searchResponse.hits.total}`);
-      searchResponse = await this.esClient.scroll({
-        scrollId: searchResponse._scroll_id,
-        scroll: '1m'
-      });
-      await this.sendBulkRequest(bulkDelete);
+      filteredCollections = collections;
     }
-    return numDeleted;
+    else return `Unsupported Filter: ${opts.filterType}`;
+
+    // Execute
+    const streamFunctions = {
+      'dump': this.collectionDump,
+      'add': this.addChangeStream,
+      'remove': this.removeChangeStream
+    };
+    if (streamFunctions.hasOwnProperty(opts.operation)) {
+      const responses = {};
+      for (let i = 0; i < filteredCollections.length; i++) {
+        console.log(`--- ${filteredCollections[i]}: ${opts.operation} BEGIN ---`);
+        responses[filteredCollections[i]] = await streamFunctions[opts.operation].call(this, filteredCollections[i])
+          .catch(err => console.log(`${opts.operation} error`, err));
+        console.log(`--- ${filteredCollections[i]}: ${opts.operation} END ---`);
+      }
+      return responses;
+    }
+    else return `URL ERROR: ${opts.operation} is not a supported function`;
+
   }
 
   // overwrites an entire elasticsearch collection with the current collection state in mongodb
   async collectionDump(collectionName) {
-    console.log(`dumping from ${collectionName}`);
-
     // since we're dumping the collection, remove the resume token
     if(fs.existsSync(`./resumeTokens/${collectionName}`)) fs.unlink(`./resumeTokens/${collectionName}`);
 
@@ -119,28 +91,7 @@ class MongoStream {
       console.log(`${collectionName}s replicated: ${bulkOpsDone}/${count}`);
     }
 
-    console.log('done');
-    return bulkOpsDone;
-  }
-
-  sendBulkRequest(bulkOp) {
-    return this.esClient.bulk({
-      refresh: false,
-      body: bulkOp
-    }).then(resp => {
-      return;
-    }).catch(err => {
-      console.log(err);
-    })
-  }
-
-  static parseResumeToken(collection) {
-    try {
-      const base64Buffer = fs.readFileSync(`./resumeTokens/${collection}`);
-      return bson.deserialize(base64Buffer);
-    } catch (err) {
-      return null;
-    }
+    return true;
   }
 
   async addChangeStream(collectionName) {
@@ -148,31 +99,46 @@ class MongoStream {
     if (!resumeToken) await this.collectionDump(collectionName);
     if (this.changeStreams[collectionName]) {
       console.log('change stream already exists, removing...');
-      this.removeChangeStream(collectionName);
+      await this.removeChangeStream(collectionName);
     }
+
     this.changeStreams[collectionName] = this.db.collection(collectionName).watch({resumeAfter: resumeToken});
     const mongoStream = this; // I'm bad at scope, needed access to 'this' in the below callback
-    this.changeStreams[collectionName].on('change', function (change) {
+    this.changeStreams[collectionName].on('change', (change) => {
       const b64String = bson.serialize(change._id).toString('base64');
       fs.writeFileSync(`./resumeTokens/${collectionName}`, b64String, 'base64');
       mongoStream.replicate(change);
     });
-
-    this.changeStreams[collectionName] = this.db.collection(collectionName).watch();
+    return true;
   }
 
-  removeChangeStream(collectionName) {
-    if (this.changeStreams[collectionName])
-      this.changeStreams[collectionName].close();
+  async removeChangeStream(collectionName) {
+    if (this.changeStreams[collectionName]) {
+      await this.changeStreams[collectionName].close();
+      delete this.changeStreams[collectionName];
+    }
 
     this.changeStreams[collectionName] = null;
+    return true;
   }
 
+  // Calls the appropriate replication function based on the change object parsed from a change stream
   async replicate(change) {
-    console.log(`${change.documentKey._id.toString()} - ${change.ns.coll} ${change.operationType} BEGIN`);
-    await this[`${change.operationType}Doc`](change)
-      .catch(err => console.log(`${change.operationType} error`, err));
-    console.log(`${change.documentKey._id.toString()} - ${change.ns.coll} ${change.operationType} END`);
+    const replicationFunctions = {
+      'insert': this.insertDoc,
+      'update': this.updateDoc,
+      'replace': this.replaceDoc,
+      'delete': this.deleteDoc,
+      'invalidate': this.invalidateDoc
+    };
+    if (replicationFunctions.hasOwnProperty(change.operationType)) {
+      await replicationFunctions[change.operationType].call(this, change)
+        .catch(err => console.log(`${change.operationType} error`, err));
+      console.log(`- ${change.documentKey._id.toString()}: ${change.ns.coll} ${change.operationType}`);
+    }
+    else {
+      console.log(`REPLICATION ERROR: ${change.operationType} is not a supported function`);
+    }
   }
 
 // insert event format https://docs.mongodb.com/manual/reference/change-events/#insert-event
@@ -252,6 +218,68 @@ class MongoStream {
     console.log('invalidate change received. The watched collection has been dropped or renamed. Stream closing...');
     // do something to handle a stream closing I guess...
   }
+
+
+  // delete all docs in ES before dumping the new docs into it
+  async deleteElasticCollection(collectionName) {
+    let searchResponse;
+    try {
+      // First get a count for all ES docs of the specified type
+      searchResponse = await this.esClient.search({
+        index: this.db.databaseName,
+        type: collectionName,
+        size: this.dumpLimit,
+        scroll: '1m'
+      });
+    }
+    catch (err) {
+      // if the search query failed, the index or type does not exist
+      searchResponse = {hits: {total: 0}};
+    }
+
+    // loop through all existing esdocks in increments of bulksize, then delete them
+    let numDeleted = 0;
+    for (let i = 0; i < Math.ceil(searchResponse.hits.total / this.dumpLimit); i++) {
+      const bulkDelete = [];
+      const dumpDocs = searchResponse.hits.hits;
+      for (let j = 0; j < dumpDocs.length; j++) {
+        bulkDelete.push({
+          delete: {
+            _index: this.db.databaseName,
+            _type: collectionName,
+            _id: dumpDocs[j]._id
+          }
+        });
+      }
+      numDeleted += bulkDelete.length;
+      console.log(`${collectionName} delete progress: ${numDeleted}/${searchResponse.hits.total}`);
+      searchResponse = await this.esClient.scroll({
+        scrollId: searchResponse._scroll_id,
+        scroll: '1m'
+      });
+      await this.sendBulkRequest(bulkDelete);
+    }
+    return numDeleted;
+  }
+
+  sendBulkRequest(bulkOp) {
+    return this.esClient.bulk({
+      refresh: false,
+      body: bulkOp
+    }).catch(err => {
+      console.log(err);
+    })
+  }
+
+  static parseResumeToken(collection) {
+    try {
+      const base64Buffer = fs.readFileSync(`./resumeTokens/${collection}`);
+      return bson.deserialize(base64Buffer);
+    } catch (err) {
+      return null;
+    }
+  }
+
 
 }
 

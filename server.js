@@ -3,7 +3,7 @@ const f = require('util').format;
 const fs = require('fs');
 
 const app = express();
-const port = 8421;
+const port = process.env.MS_ADMIN_PORT || '3000';
 
 const MongoStream = require('./mongo-stream');
 let mongoStream;
@@ -24,24 +24,24 @@ app.get('/', (request, response) => {
   response.send(responseBody);
 });
 
-// triggers a manual collection dump for the specified collection
-app.get('/dump/:collection', (request, response) => {
-  console.log(`dumping collection ${request.params.collection} to ES`);
-  mongoStream.collectionDump(request.params.collection);
-  response.send(`dumping collection ${request.params.collection} to ES`);
-});
-
-// starts listening to the change stream of the specified collection
-app.get('/start/:collection', (request, response) => {
-  mongoStream.addChangeStream(request.params.collection).then(() => {
-    response.send(`${request.params.collection} change stream added`);
+// triggers an operation for the specified collections
+// @param op: operation to perform (dump, add, or remove)
+// @param collections: comma-separated string of collections to operate on
+// @param filter(optional): if exclusive, exclude the defined collections, else include them
+app.get('/:op/:collections/:filter?', (request, response) => {
+  mongoStream.filterAndExecute({
+    filterArray: request.params.collections.split(','),
+    filterType: request.params.filter,
+    operation: request.params.op
+  }).then((results) => {
+    response.send(results);
   });
 });
 
-// stops listening to the change stream of the specified collection
-app.get('/stop/:collection', (request, response) => {
-  mongoStream.removeChangeStream(request.params.collection);
-  response.send(`${request.params.collection} change stream removed`);
+// manually set the bulk size for replication testing
+app.get('/bulk=:bulksize', (request, response) => {
+  response.send(`bulk size set from ${mongoStream.dumpLimit} to ${request.params.bulksize}`);
+  mongoStream.dumpLimit = Number(request.params.bulksize);
 });
 
 app.listen(port, (err) => {
@@ -80,14 +80,6 @@ app.listen(port, (err) => {
     },
     dumpLimit: Number(process.env.BULK_SIZE)
   };
-
-  // parse inclusive/exclusive collection list, set up filtering before adding a change stream
-  if (process.env.COLL_INCLUSIVE) {
-    initOpts.coll_inclusive = JSON.parse(process.env.COLL_INCLUSIVE);
-  }
-  else if (process.env.COLL_EXCLUSIVE) {
-    initOpts.coll_exclusive = JSON.parse(process.env.COLL_EXCLUSIVE);
-  }
 
   MongoStream.init(initOpts)
     .then((stream) => {
