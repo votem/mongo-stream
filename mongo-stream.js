@@ -71,26 +71,32 @@ class MongoStream {
 
     await this.deleteElasticCollection(collectionName);
 
-    // count and replicate documents from mongo into elasticsearch
-    const count = await this.db.collection(collectionName).count();
-    let bulkOpsDone = 0;
-    for (let i = 0; i < Math.ceil(count / this.dumpLimit); i++) {
-      const docPack = await this.db.collection(collectionName).find({}, {
-        limit: this.dumpLimit,
-        skip: i * this.dumpLimit
-      }).toArray();
-      const bulkOp = [];
-      for (let j = 0; j < docPack.length; j++) {
-        const _id = docPack[j]._id;
-        delete docPack[j]._id;
-        bulkOp.push({index: {_index: this.db.databaseName, _type: collectionName, _id: _id}});
-        bulkOp.push(docPack[j]);
+    const startDate = new Date();
+    let limit = 100000;
+    const cursor = this.db.collection(collectionName).find({}, { skip: 0, limit: limit });
+    const count = this.db.collection(collectionName).count();
+    if (count < limit) { limit = count }
+    let bulkOp = [];
+    let nextObject;
+    for (let i = 0; i < limit; i++) {
+      if (bulkOp.length !== 0 && bulkOp.length % (this.dumpLimit * 2) === 0) {
+        this.sendBulkRequest(bulkOp);
+        bulkOp = [];
       }
-      bulkOpsDone += bulkOp.length / 2;
-      await this.sendBulkRequest(bulkOp);
-      console.log(`${collectionName}s replicated: ${bulkOpsDone}/${count}`);
-    }
 
+      nextObject = await cursor.next().catch(err => console.log('next object error', err));
+      if (nextObject === null) {
+        console.log((new Date() - startDate) / 1000);
+        return true;
+      }
+
+      const _id = nextObject._id;
+      delete nextObject._id;
+      bulkOp.push({ index:  { _index: 'vrs', _type: collectionName, _id: _id } });
+      bulkOp.push(nextObject);
+    }
+    await this.sendBulkRequest(bulkOp); // last bits
+    console.log('done');
     return true;
   }
 
