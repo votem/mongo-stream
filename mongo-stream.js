@@ -50,7 +50,9 @@ class MongoStream {
       'add': this.addChangeStream,
       'remove': this.removeChangeStream
     };
+    console.log(streamFunctions);
     if (streamFunctions.hasOwnProperty(opts.operation)) {
+      console.log(`"${opts.operation}"`);
       const responses = {};
       for (let i = 0; i < filteredCollections.length; i++) {
         console.log(`--- ${filteredCollections[i]}: ${opts.operation} BEGIN ---`);
@@ -71,15 +73,18 @@ class MongoStream {
 
     await this.deleteElasticCollection(collectionName);
 
+    let requestCount = 0;
     const startDate = new Date();
     let limit = 100000;
     const cursor = this.db.collection(collectionName).find({}, { skip: 0, limit: limit });
-    const count = this.db.collection(collectionName).count();
+    const count = await this.db.collection(collectionName).count();
     if (count < limit) { limit = count }
     let bulkOp = [];
     let nextObject;
     for (let i = 0; i < limit; i++) {
       if (bulkOp.length !== 0 && bulkOp.length % (this.dumpLimit * 2) === 0) {
+        requestCount += (bulkOp.length/2);
+        console.log(`${collectionName} request progress: ${requestCount}/${count}`);
         this.sendBulkRequest(bulkOp);
         bulkOp = [];
       }
@@ -87,14 +92,16 @@ class MongoStream {
       nextObject = await cursor.next().catch(err => console.log('next object error', err));
       if (nextObject === null) {
         console.log((new Date() - startDate) / 1000);
-        return true;
+        break;
       }
 
       const _id = nextObject._id;
       delete nextObject._id;
-      bulkOp.push({ index:  { _index: 'vrs', _type: collectionName, _id: _id } });
+      bulkOp.push({ index:  { _index: this.db.databaseName, _type: collectionName, _id: _id } });
       bulkOp.push(nextObject);
     }
+    requestCount += (bulkOp.length/2);
+    console.log(`${collectionName} FINAL request progress: ${requestCount}/${count}`);
     await this.sendBulkRequest(bulkOp); // last bits
     console.log('done');
     return true;
