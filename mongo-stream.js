@@ -6,11 +6,26 @@ const MongoClient = require('mongodb').MongoClient;
 
 
 class MongoStream {
-  constructor(esClient, db, limit) {
+  constructor(esClient, db, limit, mappings) {
     this.esClient = esClient;
     this.db = db;
+    this.resumeTokens = {};
     this.changeStreams = {};
     this.dumpLimit = limit;
+    this.bulkOp = [];
+    this.interval = null;
+    this.mappings = mappings;
+
+    // write resume tokens to file every minute
+    setInterval(() => {
+      const resumeTokens = Object.keys(this.resumeTokens);
+      for (let i = 0; i < resumeTokens.length; i++) {
+        const collection = resumeTokens[i];
+        if (!this.resumeTokens[collection]) continue;
+        const b64String = bson.serialize(this.resumeTokens[collection]).toString('base64');
+        fs.writeFileSync(`./resumeTokens/${collection}`, b64String, 'base64');
+      }
+    }, 60000);
   }
 
   // constructs and returns a new MongoStream
@@ -18,7 +33,7 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     const esClient = new elasticsearch.Client(options.elasticOpts);
-    return new MongoStream(esClient, db, options.dumpLimit);
+    return new MongoStream(esClient, db, options.dumpLimit, options.mappings);
   }
 
   // filters through collections and executes the specified operation on them
@@ -55,10 +70,25 @@ class MongoStream {
       console.log(`"${opts.operation}"`);
       const responses = {};
       for (let i = 0; i < filteredCollections.length; i++) {
-        console.log(`--- ${filteredCollections[i]}: ${opts.operation} BEGIN ---`);
-        responses[filteredCollections[i]] = await streamFunctions[opts.operation].call(this, filteredCollections[i])
+        const collection = filteredCollections[i];
+
+        // set up mappings between mongo and elastic if they do not exist
+        if (!this.mappings[collection]) this.mappings[collection] = {};
+        if (!this.mappings[collection].index) {
+          this.mappings[collection].index = this.mappings.default.index;
+          if (this.mappings[collection].index === "$self")
+            this.mappings[collection].index = collection;
+        }
+        if (!this.mappings[collection.type]) {
+          this.mappings[collection].type = this.mappings.default.type;
+          if (this.mappings[collection].type === "$self")
+            this.mappings[collection].type = collection;
+        }
+
+        console.log(`--- ${collection}: ${opts.operation} BEGIN ---`);
+        responses[collection] = await streamFunctions[opts.operation].call(this, collection)
           .catch(err => console.log(`${opts.operation} error`, err));
-        console.log(`--- ${filteredCollections[i]}: ${opts.operation} END ---`);
+        console.log(`--- ${collection}: ${opts.operation} END ---`);
       }
       return responses;
     }
@@ -69,6 +99,7 @@ class MongoStream {
   // overwrites an entire elasticsearch collection with the current collection state in mongodb
   async collectionDump(collectionName) {
     // since we're dumping the collection, remove the resume token
+    this.resumeTokens[collectionName] = null;
     if(fs.existsSync(`./resumeTokens/${collectionName}`)) fs.unlink(`./resumeTokens/${collectionName}`);
 
     await this.deleteElasticCollection(collectionName);
@@ -97,7 +128,13 @@ class MongoStream {
 
       const _id = nextObject._id;
       delete nextObject._id;
-      bulkOp.push({ index:  { _index: this.db.databaseName, _type: collectionName, _id: _id } });
+      bulkOp.push({
+        index:  {
+          _index: this.mappings[collectionName].index,
+          _type: this.mappings[collectionName].type,
+          _id: _id
+        }
+      });
       bulkOp.push(nextObject);
     }
     requestCount += (bulkOp.length/2);
@@ -108,19 +145,30 @@ class MongoStream {
   }
 
   async addChangeStream(collectionName) {
-    const resumeToken = MongoStream.parseResumeToken(collectionName);
+    let resumeToken = this.resumeTokens[collectionName];
+    if (!resumeToken) resumeToken = MongoStream.parseResumeToken(collectionName);
     if (!resumeToken) await this.collectionDump(collectionName);
+
     if (this.changeStreams[collectionName]) {
       console.log('change stream already exists, removing...');
       await this.removeChangeStream(collectionName);
     }
 
     this.changeStreams[collectionName] = this.db.collection(collectionName).watch({resumeAfter: resumeToken});
-    const mongoStream = this; // I'm bad at scope, needed access to 'this' in the below callback
     this.changeStreams[collectionName].on('change', (change) => {
-      const b64String = bson.serialize(change._id).toString('base64');
-      fs.writeFileSync(`./resumeTokens/${collectionName}`, b64String, 'base64');
-      mongoStream.replicate(change);
+
+      this.resumeTokens[collectionName] = change._id;
+      if (!this.interval) {
+        this.interval = setInterval(() => {
+          console.log(this.bulkOp.length);
+          this.sendBulkRequest(this.bulkOp);
+          this.bulkOp = [];
+          clearInterval(this.interval);
+          this.interval = null;
+        }, 500);
+      }
+
+      this.replicate(change);
     });
     return true;
   }
@@ -136,7 +184,7 @@ class MongoStream {
   }
 
   // Calls the appropriate replication function based on the change object parsed from a change stream
-  async replicate(change) {
+  replicate(change) {
     const replicationFunctions = {
       'insert': this.insertDoc,
       'update': this.updateDoc,
@@ -145,8 +193,7 @@ class MongoStream {
       'invalidate': this.invalidateDoc
     };
     if (replicationFunctions.hasOwnProperty(change.operationType)) {
-      await replicationFunctions[change.operationType].call(this, change)
-        .catch(err => console.log(`${change.operationType} error`, err));
+      replicationFunctions[change.operationType].call(this, change);
       console.log(`- ${change.documentKey._id.toString()}: ${change.ns.coll} ${change.operationType}`);
     }
     else {
@@ -156,33 +203,42 @@ class MongoStream {
 
 // insert event format https://docs.mongodb.com/manual/reference/change-events/#insert-event
   insertDoc(changeStreamObj) {
-    const esIndex = changeStreamObj.ns.db;
-    const esType = changeStreamObj.ns.coll;
     const esId = changeStreamObj.fullDocument._id.toString(); // convert mongo ObjectId to string
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
 
-    return this.esClient.create({
-      index: esIndex,
-      type: esType,
-      id: esId,
-      body: esReadyDoc
+    this.bulkOp.push({
+      index:  {
+        _index: this.mappings[changeStreamObj.ns.coll].index,
+        _type: this.mappings[changeStreamObj.ns.coll].type,
+        _id: esId
+      }
     });
+    this.bulkOp.push(esReadyDoc);
   }
 
 // lookup doc in ES, apply changes, index doc
 // not the most efficient but until we need to optimize it
 // this is the most straightforward
   updateDoc(changeStreamObj) {
-    const esIndex = changeStreamObj.ns.db;
-    const esType = changeStreamObj.ns.coll;
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
     const updatedFields = changeStreamObj.updateDescription.updatedFields;
     const removedFields = changeStreamObj.updateDescription.removedFields;
 
-    return this.esClient.get({
-      index: esIndex,
-      type: esType,
+    // push to bulkOp as quickly as possible to assure proper order of operations
+    const esSource = {};
+    this.bulkOp.push({
+      index:  {
+        _index: this.mappings[changeStreamObj.ns.coll].index,
+        _type: this.mappings[changeStreamObj.ns.coll].type,
+        _id: esId
+      }
+    });
+    this.bulkOp.push(esSource);
+
+    this.esClient.get({
+      index: this.mappings[changeStreamObj.ns.coll].index,
+      type: this.mappings[changeStreamObj.ns.coll].type,
       id: esId
     }).then(doc => {
       const source = doc._source;
@@ -191,45 +247,46 @@ class MongoStream {
       });
       const esReadyDoc = Object.assign(source, updatedFields);
 
-      return this.esClient.index({
-        index: esIndex,
-        type: esType,
-        id: esId,
-        body: esReadyDoc
-      });
+      Object.assign(esSource, esReadyDoc);
     });
   }
 
   replaceDoc(changeStreamObj) {
-    const esIndex = changeStreamObj.ns.db;
-    const esType = changeStreamObj.ns.coll;
     const esId = changeStreamObj.fullDocument._id.toString(); // convert mongo ObjectId to string
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
 
-    return this.esClient.index({
-      index: esIndex,
-      type: esType,
-      id: esId,
-      body: esReadyDoc
+    this.bulkOp.push({
+      index:  {
+        _index: this.mappings[changeStreamObj.ns.coll].index,
+        _type: this.mappings[changeStreamObj.ns.coll].type,
+        _id: esId
+      }
     });
+    this.bulkOp.push(esReadyDoc);
   }
 
   deleteDoc(changeStreamObj) {
-    const esIndex = changeStreamObj.ns.db;
-    const esType = changeStreamObj.ns.coll;
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
 
-    return this.esClient.delete({
-      index: esIndex,
-      type: esType,
-      id: esId
+    this.bulkOp.push({
+      delete:  {
+        _index: this.mappings[changeStreamObj.ns.coll].index,
+        _type: this.mappings[changeStreamObj.ns.coll].type,
+        _id: esId
+      }
     });
+    this.bulkOp.push(esReadyDoc);
   }
 
   invalidateDoc(changeStreamObj) {
     console.log('invalidate change received. The watched collection has been dropped or renamed. Stream closing...');
     // do something to handle a stream closing I guess...
+    this.deleteElasticCollection(changeStreamObj.ns.coll)
+      .then(() => {
+        this.removeChangeStream(changeStreamObj.ns.coll)
+      });
+
   }
 
 
@@ -239,8 +296,8 @@ class MongoStream {
     try {
       // First get a count for all ES docs of the specified type
       searchResponse = await this.esClient.search({
-        index: this.db.databaseName,
-        type: collectionName,
+        index: this.mappings[collectionName].index,
+        type: this.mappings[collectionName].type,
         size: this.dumpLimit,
         scroll: '1m'
       });
@@ -258,8 +315,8 @@ class MongoStream {
       for (let j = 0; j < dumpDocs.length; j++) {
         bulkDelete.push({
           delete: {
-            _index: this.db.databaseName,
-            _type: collectionName,
+            _index: this.mappings[collectionName].index,
+            _type: this.mappings[collectionName].type,
             _id: dumpDocs[j]._id
           }
         });
@@ -276,6 +333,9 @@ class MongoStream {
   }
 
   sendBulkRequest(bulkOp) {
+    if (bulkOp.length === 0) {
+      return;
+    }
     return this.esClient.bulk({
       refresh: false,
       body: bulkOp

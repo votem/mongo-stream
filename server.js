@@ -78,7 +78,8 @@ app.listen(port, (err) => {
       host: process.env.ELASTIC_HOST,
       apiVersion: process.env.ELASTIC_API
     },
-    dumpLimit: Number(process.env.BULK_SIZE)
+    dumpLimit: Number(process.env.BULK_SIZE),
+    mappings: require(process.env.MAPPINGS)
   };
 
   MongoStream.init(initOpts)
