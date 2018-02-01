@@ -68,7 +68,8 @@ class MongoStream {
 
   async dumpCollections(collections) {
     for (let i = 0; i < collections.length; i++) {
-      this.changeStreams[collections[i]].removeResumeToken();
+      if (this.changeStreams[collections[i]])
+        this.changeStreams[collections[i]].removeResumeToken();
       await this.elasticManager.deleteElasticCollection(collections[i]);
 
       let limit = 100000;
