@@ -1,0 +1,8 @@
+.idea/*
+node_modules
+env/*
+*.pem
+resumeTokens/*
+!/env/test.env
+docker-compose.yaml
+package-lock.json
