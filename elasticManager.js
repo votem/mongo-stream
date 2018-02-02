@@ -44,8 +44,6 @@ class ElasticManager {
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
 
-    console.log(esReadyDoc);
-
     this.bulkOp.push({
         index:  {
           _index: this.mappings[changeStreamObj.ns.coll].index,
@@ -76,7 +74,7 @@ class ElasticManager {
       if (bulkOp.length !== 0 && bulkOp.length % (this.bulkSize * 2) === 0) {
         requestCount += (bulkOp.length/2);
         console.log(`${collection} request progress: ${requestCount}/${count}`);
-        this.sendBulkRequest(bulkOp);
+        await this.sendBulkRequest(bulkOp);
         bulkOp = [];
       }
 
@@ -141,7 +139,7 @@ class ElasticManager {
         scrollId: searchResponse._scroll_id,
         scroll: '1m'
       });
-      this.sendBulkRequest(bulkDelete);
+      await this.sendBulkRequest(bulkDelete);
     }
     return numDeleted;
   }

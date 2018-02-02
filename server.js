@@ -82,7 +82,7 @@ app.listen(port, (err) => {
 
   // env config stuff
   let url = process.env.MONGO_RS;
-  let mongoOpts = {};
+  let mongoOpts = {poolSize: 100};
 
   // if MongoDB requires SSL connection, configure options here
   if (process.env.ROOT_FILE_PATH) {
@@ -90,12 +90,12 @@ app.listen(port, (err) => {
     const cert = fs.readFileSync(process.env.KEY_FILE_PATH);
     const key = fs.readFileSync(process.env.KEY_FILE_PATH);
 
-    mongoOpts = {
+    Object.assign(mongoOpts, {
       ssl: true,
       sslCA: ca,
       sslKey: key,
       sslCert: cert
-    };
+    });
 
     const user = encodeURIComponent(process.env.MONGO_USER);
     url = f('mongodb://%s@%s', user, process.env.MONGO_RS)
