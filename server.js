@@ -26,7 +26,7 @@ app.get('/', (request, response) => {
 // triggers an add for the specified collections
 // @param collections: comma-separated string of collections to operate on
 // @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.get('/add/:collections/:filter?', (request, response) => {
+app.put('/:collections/:filter?', (request, response) => {
   mongoStream.filterCollections({
     filterArray: request.params.collections.split(','),
     filterType: request.params.filter
@@ -42,7 +42,7 @@ app.get('/add/:collections/:filter?', (request, response) => {
 // triggers a remove for the specified collections
 // @param collections: comma-separated string of collections to operate on
 // @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.get('/remove/:collections/:filter?', (request, response) => {
+app.delete('/:collections/:filter?', (request, response) => {
   mongoStream.filterCollections({
     filterArray: request.params.collections.split(','),
     filterType: request.params.filter
@@ -57,7 +57,7 @@ app.get('/remove/:collections/:filter?', (request, response) => {
 // triggers a dump for the specified collections
 // @param collections: comma-separated string of collections to operate on
 // @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.get('/dump/:collections/:filter?', (request, response) => {
+app.post('/dump/:collections/:filter?', (request, response) => {
   mongoStream.filterCollections({
     filterArray: request.params.collections.split(','),
     filterType: request.params.filter
@@ -70,7 +70,7 @@ app.get('/dump/:collections/:filter?', (request, response) => {
 });
 
 // manually set the bulk size for replication testing
-app.get('/bulk=:bulkSize', (request, response) => {
+app.put('/bulk=:bulkSize', (request, response) => {
   response.send(`bulk size set from ${mongoStream.elasticManager.bulkSize} to ${request.params.bulkSize}`);
   mongoStream.elasticManager.bulkSize = Number(request.params.bulkSize);
 });
@@ -110,7 +110,12 @@ app.listen(port, (err) => {
       apiVersion: process.env.ELASTIC_API
     },
     bulkSize: Number(process.env.BULK_SIZE),
-    mappings: require(process.env.MAPPINGS)
+    mappings: {
+      "default": {
+        "index": process.env.MONGO_DB,
+        "type": "$self"
+      }
+    }
   };
 
   MongoStream.init(initOpts)
