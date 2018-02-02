@@ -11,37 +11,68 @@ let mongoStream;
 // returns the status of all change streams currently running
 app.get('/', (request, response) => {
   const changeStreams = Object.keys(mongoStream.changeStreams);
-  const responseBody = {};
+  const responseBody = {total: changeStreams.length};
   for (let i = 0; i < changeStreams.length; i++) {
-    if (mongoStream.changeStreams[changeStreams[i]]) {
-      responseBody[changeStreams[i]] = 'Listening'
-    }
-    else {
-      responseBody[changeStreams[i]] = 'Not Listening'
-    }
+    const changeStream = mongoStream.changeStreams[changeStreams[i]];
+    if (changeStream)
+      responseBody[changeStream.collection] = 'Listening';
+    else
+      responseBody[changeStreams[i]] = 'Not Listening';
   }
 
   response.send(responseBody);
 });
 
-// triggers a manual collection dump for the specified collection
-app.get('/dump/:collection', (request, response) => {
-  console.log(`dumping collection ${request.params.collection} to ES`);
-  mongoStream.collectionDump(request.params.collection);
-  response.send(`dumping collection ${request.params.collection} to ES`);
+// triggers an add for the specified collections
+// @param collections: comma-separated string of collections to operate on
+// @param filter(optional): if exclusive, exclude the defined collections, else include them
+app.put('/:collections/:filter?', (request, response) => {
+  mongoStream.filterCollections({
+    filterArray: request.params.collections.split(','),
+    filterType: request.params.filter
+  }).then((collections) => {
+      return mongoStream.addChangeStreams(collections)
+    })
+    .then((results) => {
+      response.send(results);
+    });
+
 });
 
-// starts listening to the change stream of the specified collection
-app.get('/start/:collection', (request, response) => {
-  mongoStream.addChangeStream(request.params.collection).then(() => {
-    response.send(`${request.params.collection} change stream added`);
-  });
+// triggers a remove for the specified collections
+// @param collections: comma-separated string of collections to operate on
+// @param filter(optional): if exclusive, exclude the defined collections, else include them
+app.delete('/:collections/:filter?', (request, response) => {
+  mongoStream.filterCollections({
+    filterArray: request.params.collections.split(','),
+    filterType: request.params.filter
+  }).then((collections) => {
+    return mongoStream.removeChangeStreams(collections)
+  })
+    .then((results) => {
+      response.send(results);
+    });
 });
 
-// stops listening to the change stream of the specified collection
-app.get('/stop/:collection', (request, response) => {
-  mongoStream.removeChangeStream(request.params.collection);
-  response.send(`${request.params.collection} change stream removed`);
+// triggers a dump for the specified collections
+// @param collections: comma-separated string of collections to operate on
+// @param filter(optional): if exclusive, exclude the defined collections, else include them
+app.post('/dump/:collections/:filter?', (request, response) => {
+  mongoStream.filterCollections({
+    filterArray: request.params.collections.split(','),
+    filterType: request.params.filter
+  }).then((collections) => {
+    return mongoStream.dumpCollections(collections)
+  })
+    .then((results) => {
+      response.send(results);
+    });
+});
+
+// manually set the bulk size for replication testing
+app.put('/bulk=:bulkSize', (request, response) => {
+  response.send(`bulk size set from ${mongoStream.elasticManager.bulkSize} to ${request.params.bulkSize}`);
+  mongoStream.elasticManager.bulkSize = Number(request.params.bulkSize);
 });
 
 app.listen(port, (err) => {
@@ -51,7 +82,7 @@ app.listen(port, (err) => {
 
   // env config stuff
   let url = process.env.MONGO_RS;
-  let mongoOpts = {};
+  let mongoOpts = {poolSize: 100};
 
   // if MongoDB requires SSL connection, configure options here
   if (process.env.ROOT_FILE_PATH) {
@@ -59,12 +90,12 @@ app.listen(port, (err) => {
     const cert = fs.readFileSync(process.env.KEY_FILE_PATH);
     const key = fs.readFileSync(process.env.KEY_FILE_PATH);
 
-    mongoOpts = {
+    Object.assign(mongoOpts, {
       ssl: true,
       sslCA: ca,
       sslKey: key,
       sslCert: cert
-    };
+    });
 
     const user = encodeURIComponent(process.env.MONGO_USER);
     url = f('mongodb://%s@%s', user, process.env.MONGO_RS)
@@ -78,16 +109,14 @@ app.listen(port, (err) => {
       host: process.env.ELASTIC_HOST,
       apiVersion: process.env.ELASTIC_API
     },
-    dumpLimit: Number(process.env.BULK_SIZE)
+    bulkSize: Number(process.env.BULK_SIZE),
+    mappings: {
+      "default": {
+        "index": process.env.MONGO_DB,
+        "type": "$self"
+      }
+    }
   };
-
-  // parse inclusive/exclusive collection list, set up filtering before adding a change stream
-  if (process.env.COLL_INCLUSIVE) {
-    initOpts.coll_inclusive = JSON.parse(process.env.COLL_INCLUSIVE);
-  }
-  else if (process.env.COLL_EXCLUSIVE) {
-    initOpts.coll_exclusive = JSON.parse(process.env.COLL_EXCLUSIVE);
-  }
 
   MongoStream.init(initOpts)
     .then((stream) => {
