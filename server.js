@@ -1,9 +1,26 @@
+#!/usr/bin/env node
+
+const version = require('./package.json').version;
+const program = require('commander');
+program
+  .version(version)
+  .option('-c, --config [path]', 'Path to configuration file', './config/default.json')
+  .option('--ssl', 'Enables connection to a mongod or mongos that has TLS/SSL support enabled')
+  .option('--sslCAFile [path]', 'Specifies the .pem file that contains the root certificate chain from the Certificate Authority')
+  .option('--sslPEMKeyFile [path]', 'Specifies the .pem file that contains both the TLS/SSL certificate and key')
+  .parse(process.argv);
+
+const CONFIG = require(program.config);
+const SSL = program.ssl;
+const SSL_CA_FILE = program.sslCAFile;
+const SSL_PEM_KEY_FILE = program.sslPEMKeyFile;
+
 const express = require('express');
 const f = require('util').format;
 const fs = require('fs');
 
 const app = express();
-const port = process.env.MS_ADMIN_PORT || '3000';
+const port = CONFIG.adminPort;
 
 const MongoStream = require('./mongo-stream');
 let mongoStream;
@@ -11,7 +28,7 @@ let mongoStream;
 // returns the status of all change streams currently running
 app.get('/', (request, response) => {
   const changeStreams = Object.keys(mongoStream.changeStreams);
-  const responseBody = {total: changeStreams.length};
+  const responseBody = { total: changeStreams.length };
   for (let i = 0; i < changeStreams.length; i++) {
     const changeStream = mongoStream.changeStreams[changeStreams[i]];
     if (changeStream)
@@ -36,7 +53,6 @@ app.put('/:collections/:filter?', (request, response) => {
     .then((results) => {
       response.send(results);
     });
-
 });
 
 // triggers a remove for the specified collections
@@ -62,7 +78,8 @@ app.post('/dump/:collections/:filter?', (request, response) => {
     filterArray: request.params.collections.split(','),
     filterType: request.params.filter
   }).then((collections) => {
-    return mongoStream.dumpCollections(collections)
+    const ignoreResumeTokens = request.query.force || false;
+    return mongoStream.dumpCollections(collections, ignoreResumeTokens);
   })
     .then((results) => {
       response.send(results);
@@ -80,15 +97,18 @@ app.listen(port, (err) => {
     return console.log(`Error listening on ${port}: `, err)
   }
 
-  // env config stuff
-  let url = process.env.MONGO_RS;
-  let mongoOpts = {poolSize: 100};
+  // config
+  const db = CONFIG.mongo.database;
+  const elasticOpts = CONFIG.elasticsearch;
+  const url = f('mongodb://%s@%s', CONFIG.mongo.user, CONFIG.mongo.url)
+  let mongoOpts = CONFIG.mongo.options;
+
 
   // if MongoDB requires SSL connection, configure options here
-  if (process.env.ROOT_FILE_PATH) {
-    const ca = fs.readFileSync(process.env.ROOT_FILE_PATH);
-    const cert = fs.readFileSync(process.env.KEY_FILE_PATH);
-    const key = fs.readFileSync(process.env.KEY_FILE_PATH);
+  if (SSL) {
+    const ca = fs.readFileSync(SSL_CA_FILE);
+    const cert = fs.readFileSync(SSL_PEM_KEY_FILE);
+    const key = fs.readFileSync(SSL_PEM_KEY_FILE);
 
     Object.assign(mongoOpts, {
       ssl: true,
@@ -96,32 +116,36 @@ app.listen(port, (err) => {
       sslKey: key,
       sslCert: cert
     });
-
-    const user = encodeURIComponent(process.env.MONGO_USER);
-    url = f('mongodb://%s@%s', user, process.env.MONGO_RS)
   }
 
   const initOpts = {
     url,
     mongoOpts,
-    db: process.env.MONGO_DB,
-    elasticOpts: {
-      host: process.env.ELASTIC_HOST,
-      apiVersion: process.env.ELASTIC_API
-    },
-    bulkSize: Number(process.env.BULK_SIZE),
+    db,
+    elasticOpts,
+    bulkSize: CONFIG.bulkSize,
     mappings: {
       "default": {
-        "index": process.env.MONGO_DB,
+        "index": db,
         "type": "$self"
       }
-    }
+    },
+    collections: CONFIG.mongo.collections,
+    resumeTokenInterval: CONFIG.resumeTokenInterval
   };
 
   MongoStream.init(initOpts)
     .then((stream) => {
       console.log('connected');
       mongoStream = stream;
+      const dumpOnStart = CONFIG.dumpOnStart;
+      const collections = CONFIG.mongo.collections;
+      if (dumpOnStart){
+        const ignoreResumeTokens = CONFIG.ignoreResumeTokensOnStart;
+        mongoStream.dumpCollections(collections, ignoreResumeTokens);
+      }
+
+      mongoStream.addChangeStreams(collections);
     })
     .catch((err) => {
       console.log(`Error Creating MongoStream: ${err.message}`);

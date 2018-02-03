@@ -5,7 +5,7 @@ const ChangeStream = require('./changeStream');
 
 
 class MongoStream {
-  constructor(elasticManager, db) {
+  constructor(elasticManager, db, resumeTokenInterval = 60000) {
     this.elasticManager = elasticManager;
     this.db = db;
     this.changeStreams = {};
@@ -17,7 +17,7 @@ class MongoStream {
         const changeStream = this.changeStreams[changeStreams[i]];
         if (changeStream) changeStream.writeResumeToken();
       }
-    }, 60000);
+    }, resumeTokenInterval);
   }
 
   // constructs and returns a new MongoStream
@@ -25,7 +25,8 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize);
-    return new MongoStream(elasticManager, db);
+    const resumeTokenInterval = options.resumeTokenInterval
+    return new MongoStream(elasticManager, db, resumeTokenInterval);
   }
 
   async filterCollections(opts) {
@@ -53,7 +54,6 @@ class MongoStream {
       this.changeStreams[collections[i]] = new ChangeStream(this.db, collections[i]);
       this.changeStreams[collections[i]].listen(this.elasticManager);
     }
-
   }
 
   async removeChangeStreams(collections) {
@@ -66,10 +66,16 @@ class MongoStream {
     }
   }
 
-  async dumpCollections(collections) {
+  async dumpCollections(collections, ignoreResumeTokens = false) {
     for (let i = 0; i < collections.length; i++) {
-      if (this.changeStreams[collections[i]])
+      if (this.changeStreams[collections[i]] && this.changeStreams[collections[i]].hasResumeToken() && !ignoreResumeTokens) {
+        continue; // skip this collection if resume token exists
+      }
+
+      if (this.changeStreams[collections[i]]) {
         this.changeStreams[collections[i]].removeResumeToken();
+      }
+
       await this.elasticManager.deleteElasticCollection(collections[i]);
 
       let limit = 100000;

@@ -1,8 +1,10 @@
 .idea/*
 node_modules
-env/*
+*.env
 *.pem
 resumeTokens/*
-!/env/test.env
+!test.env
 docker-compose.yaml
 package-lock.json
+config/*
+!/config/default.json
