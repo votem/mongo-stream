@@ -37,6 +37,10 @@ class ChangeStream {
     return this.resumeToken;
   }
 
+  hasResumeToken() {
+    return this.resumeToken ? true : false;
+  }
+
   writeResumeToken() {
     if (!this.resumeToken) return;
     const b64String = bson.serialize(this.resumeToken).toString('base64');
