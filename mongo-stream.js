@@ -78,11 +78,9 @@ class MongoStream {
 
       await this.elasticManager.deleteElasticCollection(collections[i]);
 
-      let limit = 100000;
-      const cursor = this.db.collection(collections[i]).find({}, { skip: 0, limit: limit });
+      const cursor = this.db.collection(collections[i]).find({}, {});
       const count = await this.db.collection(collections[i]).count();
-      if (count < limit) { limit = count }
-      await this.elasticManager.replicateElasticCollection(cursor, collections[i], count, limit);
+      await this.elasticManager.replicateElasticCollection(cursor, collections[i], count);
 
     }
   }

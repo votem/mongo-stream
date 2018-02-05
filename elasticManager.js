@@ -66,11 +66,11 @@ class ElasticManager {
     });
   }
 
-  async replicateElasticCollection(cursor, collection, count, limit) {
+  async replicateElasticCollection(cursor, collection, count) {
     let requestCount = 0;
     let bulkOp = [];
     let nextObject;
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < count; i++) {
       if (bulkOp.length !== 0 && bulkOp.length % (this.bulkSize * 2) === 0) {
         requestCount += (bulkOp.length/2);
         console.log(`${collection} request progress: ${requestCount}/${count}`);
