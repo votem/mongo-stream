@@ -100,7 +100,7 @@ app.listen(port, (err) => {
   // config
   const db = CONFIG.mongo.database;
   const elasticOpts = CONFIG.elasticsearch;
-  const url = f('mongodb://%s@%s', CONFIG.mongo.user, CONFIG.mongo.url)
+  const url = f('mongodb://%s@%s', encodeURIComponent(CONFIG.mongo.user), CONFIG.mongo.url)
   let mongoOpts = CONFIG.mongo.options;
 
 
