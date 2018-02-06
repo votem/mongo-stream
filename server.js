@@ -2,67 +2,44 @@
 
 const express = require('express');
 const app = express();
+const bodyParser = require('body-parser');
+app.use(bodyParser.json()); // for parsing application/json
 
 const MongoStream = require('./mongo-stream');
 let mongoStream;
 
 const config = require('./configParser');
 
-// returns the status of all change streams currently running
+// returns the status of all collectionManagers currently running
 app.get('/', (request, response) => {
-  const changeStreams = Object.keys(mongoStream.changeStreams);
-  const responseBody = { total: changeStreams.length };
-  for (let i = 0; i < changeStreams.length; i++) {
-    const changeStream = mongoStream.changeStreams[changeStreams[i]];
-    if (changeStream)
-      responseBody[changeStream.collection] = 'Listening';
-    else
-      responseBody[changeStreams[i]] = 'Not Listening';
-  }
+  const collectionManagers = Object.values(mongoStream.collectionManagers);
+  const responseBody = { total: collectionManagers.length };
+  collectionManagers.forEach(manager => {
+    if (manager) {
+      responseBody[manager.collection] = 'Listening';
+    } else {
+      responseBody[manager.collection] = 'Not Listening';
+    }
+  });
 
   response.send(responseBody);
 });
 
-// triggers an add for the specified collections
-// @param collections: comma-separated string of collections to operate on
-// @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.put('/:collections/:filter?', (request, response) => {
-  const collections = request.params.collections.split(',');
-  mongoStream.filterCollections(collections, request.params.filter)
-    .then((collections) => {
-      return mongoStream.addChangeStreams(collections)
-    })
-    .then((results) => {
-      response.send(results);
-    });
-});
+app.post('/collection-manager?', (request, response) => {
+  console.log(request.body)
+  const collections = request.body.collections;
+  const managerOptions = {
+    dump: request.body.dump,
+    ignoreResumeTokens: request.body.ignoreResumeTokens,
+    watch: request.body.watch
+  }
 
-// triggers a remove for the specified collections
-// @param collections: comma-separated string of collections to operate on
-// @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.delete('/:collections/:filter?', (request, response) => {
-  const collections = request.params.collections.split(',');
-  mongoStream.filterCollections(collections, request.params.filter)
-    .then((collections) => {
-    return mongoStream.removeChangeStreams(collections)
-  })
+  return mongoStream.addCollectionManager(collections, managerOptions)
     .then((results) => {
       response.send(results);
-    });
-});
-
-// triggers a dump for the specified collections
-// @param collections: comma-separated string of collections to operate on
-// @param filter(optional): if exclusive, exclude the defined collections, else include them
-app.post('/dump/:collections/:filter?', (request, response) => {
-  const collections = request.params.collections.split(',');
-  mongoStream.filterCollections(collections, request.params.filter)
-    .then((collections) => {
-      const ignoreResumeTokens = request.query.force || false;
-      return mongoStream.dumpCollections(collections, ignoreResumeTokens);
-    })
-    .then((results) => {
-      response.send(results);
+    }).catch(err => {
+      console.log('Error posting collection-manager', err);
+      response.send(err);
     });
 });
 
@@ -70,6 +47,20 @@ app.post('/dump/:collections/:filter?', (request, response) => {
 app.put('/bulk=:bulkSize', (request, response) => {
   response.send(`bulk size set from ${mongoStream.elasticManager.bulkSize} to ${request.params.bulkSize}`);
   mongoStream.elasticManager.bulkSize = Number(request.params.bulkSize);
+});
+
+// triggers a remove for the specified collections
+app.delete('/collection-manager/:collections?', (request, response) => {
+  const collections = request.params.collections.split(',');
+  console.log('Deleting collections:', collections);
+
+  return mongoStream.removeCollectionManager(collections)
+    .then(results => {
+      console.log('Remaining collections after Delete:', results);
+      response.send(results);
+    }).catch(err => {
+      response.send(err);
+    });
 });
 
 app.listen(config.adminPort, (err) => {
