@@ -25,25 +25,31 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize);
-    const resumeTokenInterval = options.resumeTokenInterval
-    return new MongoStream(elasticManager, db, resumeTokenInterval);
+    const resumeTokenInterval = options.resumeTokenInterval;
+    const mongoStream = new MongoStream(elasticManager, db, resumeTokenInterval);
+    if (options.dumpOnStart){
+      const ignoreResumeTokens = options.ignoreResumeTokensOnStart;
+      await mongoStream.dumpCollections(options.collections, ignoreResumeTokens);
+    }
+    await mongoStream.addChangeStreams(options.collections);
+    return mongoStream;
   }
 
-  async filterCollections(opts) {
+  async filterCollections(filterArray, filterType) {
     let filteredCollections;
-    if (!opts.filterType || opts.filterType === 'inclusive') {
-      filteredCollections = opts.filterArray;
+    if (!filterType || filterType === 'inclusive') {
+      filteredCollections = filterArray;
     }
-    else if (opts.filterType === 'exclusive') {
+    else if (filterType === 'exclusive') {
       const mongoCollections = await this.db.collections();
       const collections = [];
       for (let i = 0; i < mongoCollections.length; i++) {
-        if (opts.filterArray.indexOf(mongoCollections[i].collectionName) === -1)
+        if (filterArray.indexOf(mongoCollections[i].collectionName) === -1)
           collections.push(mongoCollections[i].collectionName);
       }
       filteredCollections = collections;
     }
-    else return `Unsupported Filter: ${opts.filterType}`;
+    else return `Unsupported Filter: ${filterType}`;
     return filteredCollections;
   }
 
@@ -80,7 +86,7 @@ class MongoStream {
 
       const cursor = this.db.collection(collections[i]).find({}, {});
       const count = await this.db.collection(collections[i]).count();
-      await this.elasticManager.replicateElasticCollection(cursor, collections[i], count);
+      await this.elasticManager.dumpElasticCollection(cursor, collections[i], count);
 
     }
   }

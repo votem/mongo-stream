@@ -66,7 +66,7 @@ class ElasticManager {
     });
   }
 
-  async replicateElasticCollection(cursor, collection, count) {
+  async dumpElasticCollection(cursor, collection, count) {
     let requestCount = 0;
     let bulkOp = [];
     let nextObject;
