@@ -1,22 +1,21 @@
 const MongoClient = require('mongodb').MongoClient;
 
 const ElasticManager = require('./elasticManager');
-const ChangeStream = require('./changeStream');
+const CollectionManager = require('./CollectionManager');
 
 
 class MongoStream {
   constructor(elasticManager, db, resumeTokenInterval = 60000) {
     this.elasticManager = elasticManager;
     this.db = db;
-    this.changeStreams = {};
+    this.collectionManagers = {};
 
     // write resume tokens to file every minute
     setInterval(() => {
-      const changeStreams = Object.keys(this.changeStreams);
-      for (let i = 0; i < changeStreams.length; i++) {
-        const changeStream = this.changeStreams[changeStreams[i]];
-        if (changeStream) changeStream.writeResumeToken();
-      }
+      const collectionManagers = Object.values(this.collectionManagers);
+      collectionManagers.forEach(manager => {
+        manager.writeResumeToken();
+      });
     }, resumeTokenInterval);
   }
 
@@ -27,70 +26,42 @@ class MongoStream {
     const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize);
     const resumeTokenInterval = options.resumeTokenInterval;
     const mongoStream = new MongoStream(elasticManager, db, resumeTokenInterval);
-    if (options.dumpOnStart){
-      const ignoreResumeTokens = options.ignoreResumeTokensOnStart;
-      await mongoStream.dumpCollections(options.collections, ignoreResumeTokens);
+    const managerOptions = {
+      dump: options.dumpOnStart,
+      ignoreResumeTokens: options.ignoreResumeTokensOnStart,
+      watch: true
     }
-    await mongoStream.addChangeStreams(options.collections);
+
+    await mongoStream.addCollectionManager(options.collections, managerOptions);
+
     return mongoStream;
   }
 
-  async filterCollections(filterArray, filterType) {
-    let filteredCollections;
-    if (!filterType || filterType === 'inclusive') {
-      filteredCollections = filterArray;
-    }
-    else if (filterType === 'exclusive') {
-      const mongoCollections = await this.db.collections();
-      const collections = [];
-      for (let i = 0; i < mongoCollections.length; i++) {
-        if (filterArray.indexOf(mongoCollections[i].collectionName) === -1)
-          collections.push(mongoCollections[i].collectionName);
-      }
-      filteredCollections = collections;
-    }
-    else return `Unsupported Filter: ${filterType}`;
-    return filteredCollections;
-  }
+  // accepts single collection or array
+  async addCollectionManager(collections, options) {
+    if (!Array.isArray(collections)) collections = [collections];
+    await this.removeCollectionManager(collections);
 
-  async addChangeStreams(collections) {
-    await this.removeChangeStreams(collections);
+    for (const collection of collections) {
+      const collectionManager = new CollectionManager(this.db, collection, this.elasticManager);
+      if (options.dump) { await collectionManager.dumpCollection(options.ignoreResumeTokens); }
+      if (options.watch) { collectionManager.watch() };
 
-    for (let i = 0; i < collections.length; i++) {
-      this.changeStreams[collections[i]] = new ChangeStream(this.db, collections[i]);
-      this.changeStreams[collections[i]].listen(this.elasticManager);
+      this.collectionManagers[collection] = collectionManager;
     }
   }
 
-  async removeChangeStreams(collections) {
-    for (let i = 0; i < collections.length; i++) {
-      if (this.changeStreams[collections[i]]) {
-        await this.changeStreams[collections[i]].remove();
-        delete this.changeStreams[collections[i]];
-        this.changeStreams[collections[i]] = null;
+  async removeCollectionManager(collections) {
+    if (!Array.isArray(collections)) collections = [collections];
+    for (const collection of collections) {
+      if (this.collectionManagers[collection]) {
+        this.collectionManagers[collection].removeChangeStream();
+        delete this.collectionManagers[collection];
       }
     }
+
+    return Object.keys(this.collectionManagers);
   }
-
-  async dumpCollections(collections, ignoreResumeTokens = false) {
-    for (let i = 0; i < collections.length; i++) {
-      if (this.changeStreams[collections[i]] && this.changeStreams[collections[i]].hasResumeToken() && !ignoreResumeTokens) {
-        continue; // skip this collection if resume token exists
-      }
-
-      if (this.changeStreams[collections[i]]) {
-        this.changeStreams[collections[i]].removeResumeToken();
-      }
-
-      await this.elasticManager.deleteElasticCollection(collections[i]);
-
-      const cursor = this.db.collection(collections[i]).find({}, {});
-      const count = await this.db.collection(collections[i]).count();
-      await this.elasticManager.dumpElasticCollection(cursor, collections[i], count);
-
-    }
-  }
-
 }
 
 module.exports = MongoStream;

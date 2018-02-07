@@ -16,7 +16,6 @@ class ElasticManager {
       this.interval = setInterval(() => {
         clearInterval(this.interval);
         this.interval = null;
-        console.log(this.bulkOp.length);
         this.sendBulkRequest(this.bulkOp);
         this.bulkOp = [];
       }, 500);
@@ -29,7 +28,6 @@ class ElasticManager {
       'delete': this.deleteDoc
     };
     if (replicationFunctions.hasOwnProperty(change.operationType)) {
-      this.setMappings(change.ns.coll);
       console.log(`- ${change.documentKey._id.toString()}: ${change.ns.coll} ${change.operationType}`);
       return replicationFunctions[change.operationType].call(this, change);
     }
@@ -66,44 +64,8 @@ class ElasticManager {
     });
   }
 
-  async dumpElasticCollection(cursor, collection, count) {
-    let requestCount = 0;
-    let bulkOp = [];
-    let nextObject;
-    for (let i = 0; i < count; i++) {
-      if (bulkOp.length !== 0 && bulkOp.length % (this.bulkSize * 2) === 0) {
-        requestCount += (bulkOp.length/2);
-        console.log(`${collection} request progress: ${requestCount}/${count}`);
-        await this.sendBulkRequest(bulkOp);
-        bulkOp = [];
-      }
-
-      nextObject = await cursor.next().catch(err => console.log('next object error', err));
-      if (nextObject === null) {
-        break;
-      }
-
-      const _id = nextObject._id;
-      delete nextObject._id;
-      bulkOp.push({
-        index:  {
-          _index: this.mappings[collection].index,
-          _type: this.mappings[collection].type,
-          _id: _id
-        }
-      });
-      bulkOp.push(nextObject);
-    }
-    requestCount += (bulkOp.length/2);
-    console.log(`${collection} FINAL request progress: ${requestCount}/${count}`);
-    await this.sendBulkRequest(bulkOp); // last bits
-    console.log('done');
-  }
-
   // delete all docs in ES before dumping the new docs into it
   async deleteElasticCollection(collectionName) {
-    this.setMappings(collectionName);
-
     let searchResponse;
     try {
       // First get a count for all ES docs of the specified type
@@ -167,9 +129,17 @@ class ElasticManager {
     return this.esClient.bulk({
       refresh: false,
       body: bulkOp
+    }).then(response => {
+      if (!response.errors) { return; }
+
+      response.items.forEach(item => {
+        if (item.index.error) {
+          console.log('ERROR', item.index);
+        }
+      });
     }).catch(err => {
       console.log(err);
-    })
+    });
   }
 
 }
