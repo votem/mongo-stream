@@ -59,7 +59,11 @@ class CollectionManager {
   _addChangeListener() {
     this.changeStream.on('change', (change) => {
       console.log('change event', change.operationType);
-      if (change.operationType === 'invalidate') { return }
+      if (change.operationType === 'invalidate') {
+        this.resetChangeStream();
+        return;
+      }
+
       this.resumeToken = change._id;
       this.elasticManager.replicate(change);
     });
@@ -68,10 +72,6 @@ class CollectionManager {
   _addCloseListener() {
     this.changeStream.on('close', async () => {
       console.log('close event');
-      this.resetChangeStream();
-      await this.elasticManager.deleteElasticCollection(this.collection);
-      await this.dumpCollection().catch(err => console.log(err));
-      this.watch();
     });
   }
 
@@ -81,9 +81,12 @@ class CollectionManager {
     });
   }
 
-  resetChangeStream() {
+  async resetChangeStream() {
     delete this.changeStream;
     this.resumeToken = null;
+    await this.elasticManager.deleteElasticCollection(this.collection);
+    await this.dumpCollection().catch(err => console.log(err));
+    this.watch();
   }
 
   removeChangeStream() {
