@@ -3,8 +3,6 @@
 Mongo Stream is a Node.js project that aims to make use of Mongo 3.6+ change-streams
 to synchronize data between Mongodb and ElasticSearch
 
-This project is currently a POC and subject to several major changes.
-
 ## Prerequisites
 
 * Node.js (tested with version 8)
@@ -13,12 +11,27 @@ This project is currently a POC and subject to several major changes.
 
 ## Setup
 
-TODO
+```
+git clone https://github.com/everyone-counts/mongo-stream.git
+
+npm install
+```
 
 ## Usage
 
-TODO
+To use with default configuation:
+```
+npm start
+```
 
+To use with a custom config file:
+```
+./server.js -c <path-to-config-file>
+```
+
+## Contributing
+
+Feel free to submit pull requests. If you'd like to contribute towards closing an open issue please leave a comment with your solution proposal in the comment section of the issue.  
 
 ## Credits
 
