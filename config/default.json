@@ -15,6 +15,6 @@
   "bulkSize": 1000,
   "adminPort": 3000,
   "ignoreResumeTokensOnStart": false,
-  "dumpIfNoTokenFound": false,
+  "dumpOnStart": false,
   "resumeTokenInterval": 60000
 }
