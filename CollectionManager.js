@@ -7,7 +7,7 @@ class CollectionManager {
     this.db = db;
     this.elasticManager = elasticManager;
     this.collection = collection;
-    this.elasticManager.setMappings(collection)
+    this.elasticManager.setMappings(collection);
     this.resumeToken = this.getResumeToken();
     this.changeStream;
   }
@@ -48,8 +48,9 @@ class CollectionManager {
     console.log('done');
   }
 
-  watch() {
+  watch(ignoreResumeToken=false) {
     console.log('new watcher for collection', this.collection);
+    if (ignoreResumeToken) this.resumeToken = null;
     this.changeStream = this.db.collection(this.collection).watch({resumeAfter: this.resumeToken, fullDocument: 'updateLookup'});
     this._addChangeListener();
     this._addCloseListener();

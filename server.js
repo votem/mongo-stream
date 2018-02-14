@@ -26,13 +26,13 @@ app.get('/', (request, response) => {
 });
 
 app.post('/collection-manager?', (request, response) => {
-  console.log(request.body)
+  console.log(request.body);
   const collections = request.body.collections;
   const managerOptions = {
     dump: request.body.dump,
     ignoreResumeTokens: request.body.ignoreResumeTokens,
     watch: request.body.watch
-  }
+  };
 
   return mongoStream.addCollectionManager(collections, managerOptions)
     .then((results) => {
