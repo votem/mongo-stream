@@ -10,7 +10,7 @@ class MongoStream {
     this.db = db;
     this.collectionManagers = {};
 
-    // write resume tokens to file every minute
+    // write resume tokens to file on an interval
     setInterval(() => {
       const collectionManagers = Object.values(this.collectionManagers);
       collectionManagers.forEach(manager => {
@@ -32,7 +32,7 @@ class MongoStream {
       dump: options.dumpOnStart,
       ignoreResumeTokens: options.ignoreResumeTokensOnStart,
       watch: true
-    }
+    };
 
     await mongoStream.addCollectionManager(options.collections, managerOptions);
 
@@ -48,9 +48,9 @@ class MongoStream {
       const collectionManager = new CollectionManager(this.db, collection, this.elasticManager);
       if (options.dump) {
         await collectionManager.elasticManager.deleteElasticCollection(collection);
-        await collectionManager.dumpCollection(options.ignoreResumeTokens);
+        await collectionManager.dumpCollection();
       }
-      if (options.watch) { collectionManager.watch() };
+      if (options.watch) { collectionManager.watch(options.ignoreResumeTokens) }
 
       this.collectionManagers[collection] = collectionManager;
     }
