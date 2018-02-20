@@ -48,7 +48,7 @@ class CollectionManager {
     console.log('done');
   }
 
-  watch(ignoreResumeToken=false) {
+  watch(ignoreResumeToken = false) {
     console.log('new watcher for collection', this.collection);
     if (ignoreResumeToken) this.resumeToken = null;
     this.changeStream = this.db.collection(this.collection).watch({resumeAfter: this.resumeToken, fullDocument: 'updateLookup'});
@@ -61,7 +61,7 @@ class CollectionManager {
     this.changeStream.on('change', (change) => {
       console.log('change event', change.operationType);
       if (change.operationType === 'invalidate') {
-        this.resetChangeStream();
+        this.resetChangeStream(true);
         return;
       }
 
@@ -71,22 +71,28 @@ class CollectionManager {
   }
 
   _addCloseListener() {
-    this.changeStream.on('close', async () => {
+    this.changeStream.on('close', () => {
       console.log('close event');
     });
   }
 
   _addErrorListener() {
     this.changeStream.on('error', (error) => {
-      console.log('changeStream error', error);
+      console.log(this.collection,' changeStream error', error);
+      // resume of change stream was not possible, as the resume token was not found
+      if (error.code === 40585 || error.code === 40615) {
+        this.resetChangeStream();
+      }
     });
   }
 
-  async resetChangeStream() {
+  async resetChangeStream(dump = false) {
     delete this.changeStream;
     this.resumeToken = null;
-    await this.elasticManager.deleteElasticCollection(this.collection);
-    await this.dumpCollection().catch(err => console.log(err));
+    if (dump) {
+      await this.elasticManager.deleteElasticCollection(this.collection);
+      await this.dumpCollection().catch(err => console.log(err));
+    }
     this.watch();
   }
 
@@ -115,7 +121,7 @@ class CollectionManager {
   }
 
   hasResumeToken() {
-    return this.resumeToken ? true : false;
+    return !!this.resumeToken;
   }
 
   writeResumeToken() {
