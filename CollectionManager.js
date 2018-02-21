@@ -31,13 +31,16 @@ class CollectionManager {
         break;
       }
 
+      let parentId = this.elasticManager.getParentId(nextObject, this.elasticManager.mappings[this.collection].type);
+
       const _id = nextObject._id;
       delete nextObject._id;
       bulkOp.push({
         index:  {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
-          _id: _id
+          _id: _id,
+          _parent:parentId
         }
       });
       bulkOp.push(nextObject);

@@ -16,5 +16,10 @@
   "adminPort": 3000,
   "ignoreResumeTokensOnStart": false,
   "dumpOnStart": false,
-  "resumeTokenInterval": 60000
+  "resumeTokenInterval": 60000,
+  "parentChildRelations":[{
+    "parentCollection":"customer",
+    "childCollection":"order",
+    "childsParentIdField":"customerId"
+  }]
 }

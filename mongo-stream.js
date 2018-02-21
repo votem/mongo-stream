@@ -25,7 +25,7 @@ class MongoStream {
     const db = client.db(options.db);
     await db.createCollection('init');  // workaround for "MongoError: cannot open $changeStream for non-existent database"
     await db.dropCollection('init');
-    const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize);
+    const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize, options.parentChildRelations);
     const resumeTokenInterval = options.resumeTokenInterval;
     const mongoStream = new MongoStream(elasticManager, db, resumeTokenInterval);
     const managerOptions = {
