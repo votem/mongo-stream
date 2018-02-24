@@ -72,7 +72,7 @@ class CollectionManager {
 
   _addCloseListener() {
     this.changeStream.on('close', () => {
-      console.log('close event');
+      this.removeChangeStream();
     });
   }
 
@@ -81,15 +81,16 @@ class CollectionManager {
       console.log(this.collection,' changeStream error', error);
       // resume of change stream was not possible, as the resume token was not found
       if (error.code === 40585 || error.code === 40615) {
-        this.resetChangeStream();
+        this.resetChangeStream(true);
       }
+
     });
   }
 
   async resetChangeStream(dump = false) {
     delete this.changeStream;
-    this.resumeToken = null;
     if (dump) {
+      this.resumeToken = null;
       await this.elasticManager.deleteElasticCollection(this.collection);
       await this.dumpCollection().catch(err => console.log(err));
     }
@@ -104,6 +105,7 @@ class CollectionManager {
       this.changeStream.removeAllListeners(listener);
     });
     delete this.changeStream;
+    this.writeResumeToken();
     this.resumeToken = null;
   }
 

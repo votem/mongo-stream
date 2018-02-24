@@ -15,7 +15,7 @@ app.get('/', (request, response) => {
   const collectionManagers = Object.values(mongoStream.collectionManagers);
   const responseBody = { total: collectionManagers.length };
   collectionManagers.forEach(manager => {
-    if (manager) {
+    if (manager.changeStream) {
       responseBody[manager.collection] = 'Listening';
     } else {
       responseBody[manager.collection] = 'Not Listening';
