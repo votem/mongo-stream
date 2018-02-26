@@ -10,6 +10,16 @@ class MongoStream {
     this.db = db;
     this.collectionManagers = {};
 
+    // after successful reconnection to mongo, restart all change streams
+    db.on('reconnect', () => {
+      console.log('connection reestablished with mongoDB');
+      const collectionManagers = Object.values(this.collectionManagers);
+      collectionManagers.forEach(manager => {
+        manager.getResumeToken();
+        manager.resetChangeStream();
+      });
+    });
+
     // write resume tokens to file on an interval
     setInterval(() => {
       const collectionManagers = Object.values(this.collectionManagers);
@@ -23,6 +33,12 @@ class MongoStream {
   static async init(options) {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
+    // log any db events emitted
+    db.on('close', (err) => {console.log('close ',err)});
+    db.on('error', (err) => {console.log('error ',err)});
+    db.on('parseError', (err) => {console.log('parseError ',err)});
+    db.on('timeout', (err) => {console.log('timeout ',err)});
+
     await db.createCollection('init');  // workaround for "MongoError: cannot open $changeStream for non-existent database"
     await db.dropCollection('init');
     const elasticManager = new ElasticManager(options.elasticOpts, options.mappings, options.bulkSize, options.parentChildRelations);
