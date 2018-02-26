@@ -59,6 +59,16 @@ if (mongoOpts.ssl) {
   mongoOpts.sslCert = fs.readFileSync(mongoOpts.sslCert, 'utf8');
 }
 
+//warn user if their collection names are too large to help debug errors in configuration
+const COLL_NAME_MAX_LENGTH = 110;
+CONFIG.mongo.collections.forEach((collection) => {
+  if(collection.length > COLL_NAME_MAX_LENGTH){
+    console.log(`WARNING: The collection ${collection} is ${collection.length - COLL_NAME_MAX_LENGTH} characters too large.  Mongo does not allow names to be larger that 120 bytes.(https://docs.mongodb.com/manual/reference/limits/#Restriction-on-Collection-Names)`);
+  }
+});
+
+const parentChildRelations = CONFIG.parentChildRelations || []
+
 const initOpts = {
   adminPort,
   bulkSize,
@@ -75,7 +85,8 @@ const initOpts = {
   collections: CONFIG.mongo.collections,
   resumeTokenInterval: CONFIG.resumeTokenInterval,
   ignoreResumeTokensOnStart: CONFIG.ignoreResumeTokensOnStart,
-  dumpOnStart: CONFIG.dumpOnStart
+  dumpOnStart: CONFIG.dumpOnStart,
+  parentChildRelations: parentChildRelations
 };
 
 module.exports = initOpts;

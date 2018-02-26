@@ -1,13 +1,13 @@
 const elasticsearch = require('elasticsearch');
 
 class ElasticManager {
-  constructor(elasticOpts, mappings, bulkSize) {
+  constructor(elasticOpts, mappings, bulkSize, parentChildRelations) {
     this.esClient = new elasticsearch.Client(elasticOpts);
     this.mappings = mappings;
     this.bulkSize = bulkSize;
     this.bulkOp = [];
     this.interval = null;
-
+    this.parentChildRelations = parentChildRelations;
   }
 
   // Calls the appropriate replication function based on the change object parsed from a change stream
@@ -42,26 +42,72 @@ class ElasticManager {
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
 
+    let parentId = this.getParentId(esReadyDoc, this.mappings[changeStreamObj.ns.coll].type);
+
     this.bulkOp.push({
         index:  {
           _index: this.mappings[changeStreamObj.ns.coll].index,
           _type: this.mappings[changeStreamObj.ns.coll].type,
-          _id: esId
+          _id: esId,
+          _parent:parentId
         }
       });
     this.bulkOp.push(esReadyDoc);
   }
 
-  deleteDoc(changeStreamObj) {
+  getParentId(document, type){
+    let thisParentId = null
+    this.parentChildRelations.forEach((relation) => {
+      if(relation.childCollection === type){
+        thisParentId = document[relation.childsParentIdField];
+      }
+    })
+    return thisParentId;
+  }
+
+
+
+  async deleteDoc(changeStreamObj) {
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
+
+    const parentId = await this.findParentId(this.mappings[changeStreamObj.ns.coll], esId).catch((err) => {
+      console.log('error finding parentId in delete: ', err);
+    });
 
     this.bulkOp.push({
       delete: {
         _index: this.mappings[changeStreamObj.ns.coll].index,
         _type: this.mappings[changeStreamObj.ns.coll].type,
-        _id: esId
+        _id: esId,
+        _parent: parentId
       }
     });
+  }
+
+//find a parent Id of a document by searching for the document and pulling that Id out.
+//returns null if the collection is not a child collection or does not contain a document with the given Id.
+  async findParentId(collection, childId){
+    let parentId = null
+    for (let relation of this.parentChildRelations){
+      if(relation.childCollection === collection.type){
+        let doc = await this.esClient.msearch({
+          body:[
+            { index: collection.index, type: collection.type },
+            { query: {
+              "match": {
+                 "_id": childId
+              }
+            }}
+          ]
+        })
+        try{
+          parentId = doc.responses[0].hits.hits[0]._parent
+        } catch(err) {
+          console.log(`cannot find item of type ${collection.type} with id ${childId}`);
+        }
+      }
+    }
+    return parentId;
   }
 
   // delete all docs in ES before dumping the new docs into it
@@ -91,7 +137,8 @@ class ElasticManager {
           delete: {
             _index: this.mappings[collectionName].index,
             _type: this.mappings[collectionName].type,
-            _id: dumpDocs[j]._id
+            _id: dumpDocs[j]._id,
+            _parent: dumpDocs[j]._parent
           }
         });
       }
@@ -133,8 +180,17 @@ class ElasticManager {
       if (!response.errors) { return; }
 
       response.items.forEach(item => {
-        if (item.index.error) {
-          console.log('ERROR', item.index);
+        let erroredItem;
+        if(item.delete && item.delete.error){
+          erroredItem = item.delete
+        } else if (item.index && item.index.error) {
+          erroredItem = item.index
+        }
+        if(erroredItem){
+          console.log('ERROR', erroredItem);
+          if(erroredItem.error.type === 'routing_missing_exception'){
+            console.log('DEBUG TIP: This error is most likely due do to a missing child parent relationship in the config.  See default config file for reference.');
+          }
         }
       });
     }).catch(err => {
