@@ -1,4 +1,5 @@
 const elasticsearch = require('elasticsearch');
+const logger = new (require('service-logger'))(__filename);
 
 class ElasticManager {
   constructor(elasticOpts, mappings, bulkSize, parentChildRelations) {
@@ -28,11 +29,11 @@ class ElasticManager {
       'delete': this.deleteDoc
     };
     if (replicationFunctions.hasOwnProperty(change.operationType)) {
-      console.log(`- ${change.documentKey._id.toString()}: ${change.ns.coll} ${change.operationType}`);
+      logger.info(`- ${change.documentKey._id.toString()}: ${change.ns.coll} ${change.operationType}`);
       return replicationFunctions[change.operationType].call(this, change);
     }
     else {
-      console.log(`REPLICATION ERROR: ${change.operationType} is not a supported function`);
+      logger.error(`REPLICATION ERROR: ${change.operationType} is not a supported function`);
     }
   }
 
@@ -56,12 +57,12 @@ class ElasticManager {
   }
 
   getParentId(document, type){
-    let thisParentId = null
+    let thisParentId = null;
     this.parentChildRelations.forEach((relation) => {
       if(relation.childCollection === type){
         thisParentId = document[relation.childsParentIdField];
       }
-    })
+    });
     return thisParentId;
   }
 
@@ -71,7 +72,7 @@ class ElasticManager {
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
 
     const parentId = await this.findParentId(this.mappings[changeStreamObj.ns.coll], esId).catch((err) => {
-      console.log('error finding parentId in delete: ', err);
+      logger.error(`error finding parentId in delete: ${err}`);
     });
 
     this.bulkOp.push({
@@ -99,11 +100,11 @@ class ElasticManager {
               }
             }}
           ]
-        })
+        });
         try{
           parentId = doc.responses[0].hits.hits[0]._parent
         } catch(err) {
-          console.log(`cannot find item of type ${collection.type} with id ${childId}`);
+          logger.error(`cannot find item of type ${collection.type} with id ${childId}`);
         }
       }
     }
@@ -143,7 +144,7 @@ class ElasticManager {
         });
       }
       numDeleted += bulkDelete.length;
-      console.log(`${collectionName} delete progress: ${numDeleted}/${searchResponse.hits.total}`);
+      logger.info(`${collectionName} delete progress: ${numDeleted}/${searchResponse.hits.total}`);
       searchResponse = await this.esClient.scroll({
         scrollId: searchResponse._scroll_id,
         scroll: '1m'
@@ -187,14 +188,14 @@ class ElasticManager {
           erroredItem = item.index
         }
         if(erroredItem){
-          console.log('ERROR', erroredItem);
+          logger.error(`Bulk Request Error: ${JSON.stringify(erroredItem)}`);
           if(erroredItem.error.type === 'routing_missing_exception'){
-            console.log('DEBUG TIP: This error is most likely due do to a missing child parent relationship in the config.  See default config file for reference.');
+            logger.debug('This is most likely due do to a missing child parent relationship in the config.  See default config file for reference.');
           }
         }
       });
     }).catch(err => {
-      console.log(err);
+      logger.error(`Bulk Error: ${err}`);
     });
   }
 
