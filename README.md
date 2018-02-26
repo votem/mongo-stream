@@ -43,4 +43,4 @@ Voter Registration, Online Voting, and Remote Accessible Voting. The product sui
 is designed to address pain points facing election officials today, including security,
 accessibility, cost, and sustainability.
 
-For more information, visit http://everyonecounts.com.
+For more information, visit https://everyonecounts.com.
