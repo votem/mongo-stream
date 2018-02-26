@@ -4,7 +4,7 @@ const express = require('express');
 const app = express();
 const bodyParser = require('body-parser');
 app.use(bodyParser.json()); // for parsing application/json
-
+const logger = new (require('service-logger'))(__filename);
 const MongoStream = require('./mongo-stream');
 let mongoStream;
 
@@ -26,7 +26,7 @@ app.get('/', (request, response) => {
 });
 
 app.post('/collection-manager?', (request, response) => {
-  console.log(request.body);
+  logger.info(request.body);
   const collections = request.body.collections;
   const managerOptions = {
     dump: request.body.dump,
@@ -38,7 +38,7 @@ app.post('/collection-manager?', (request, response) => {
     .then((results) => {
       response.send(results);
     }).catch(err => {
-      console.log('Error posting collection-manager', err);
+      logger.error(`Error posting collection-manager: ${err}`);
       response.send(err);
     });
 });
@@ -52,11 +52,11 @@ app.put('/bulk=:bulkSize', (request, response) => {
 // triggers a remove for the specified collections
 app.delete('/collection-manager/:collections?', (request, response) => {
   const collections = request.params.collections.split(',');
-  console.log('Deleting collections:', collections);
+  logger.info(`Deleting collections: ${collections}`);
 
   return mongoStream.removeCollectionManager(collections)
     .then(results => {
-      console.log('Remaining collections after Delete:', results);
+      logger.info(`Remaining collections after Delete: ${results}`);
       response.send(results);
     }).catch(err => {
       response.send(err);
@@ -65,17 +65,17 @@ app.delete('/collection-manager/:collections?', (request, response) => {
 
 app.listen(config.adminPort, (err) => {
   if (err) {
-    return console.log(`Error listening on ${config.adminPort}: `, err)
+    return logger.error(`Error listening on ${config.adminPort}: ${err}`);
   }
 
   MongoStream.init(config)
     .then((stream) => {
-      console.log('connected');
+      logger.info('connected');
       mongoStream = stream;
     })
     .catch((err) => {
-      console.log(`Error Creating MongoStream: ${err.message}`);
+      logger.error(`Error Creating MongoStream: ${err.message}`);
       process.exit();
     });
-  console.log(`server is listening on port ${config.adminPort}`);
+  logger.info(`server is listening on port ${config.adminPort}`);
 });

@@ -21,5 +21,6 @@
     "parentCollection":"customer",
     "childCollection":"order",
     "childsParentIdField":"customerId"
-  }]
+  }],
+  "logLevel": "info"
 }

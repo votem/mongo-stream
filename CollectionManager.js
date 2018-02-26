@@ -1,6 +1,7 @@
 const BSON = require('bson');
 const bson = new BSON();
 const fs = require('fs');
+const logger = new (require('service-logger'))(__filename);
 
 class CollectionManager {
   constructor(db, collection, elasticManager) {
@@ -21,12 +22,12 @@ class CollectionManager {
     for (let i = 0; i < count; i++) {
       if (bulkOp.length !== 0 && bulkOp.length % (this.elasticManager.bulkSize * 2) === 0) {
         requestCount += (bulkOp.length/2);
-        console.log(`${this.collection} request progress: ${requestCount}/${count}`);
+        logger.info(`${this.collection} request progress: ${requestCount}/${count}`);
         await this.elasticManager.sendBulkRequest(bulkOp);
         bulkOp = [];
       }
 
-      nextObject = await cursor.next().catch(err => console.log('next object error', err));
+      nextObject = await cursor.next().catch(err => logger.error(`next object error ${err}`));
       if (nextObject === null) {
         break;
       }
@@ -46,13 +47,13 @@ class CollectionManager {
       bulkOp.push(nextObject);
     }
     requestCount += (bulkOp.length/2);
-    console.log(`${this.collection} FINAL request progress: ${requestCount}/${count}`);
+    logger.info(`${this.collection} FINAL request progress: ${requestCount}/${count}`);
     await this.elasticManager.sendBulkRequest(bulkOp); // last bits
-    console.log('done');
+    logger.info('done');
   }
 
   watch(ignoreResumeToken = false) {
-    console.log('new watcher for collection', this.collection);
+    logger.info('new watcher for collection', this.collection);
     if (ignoreResumeToken) this.resumeToken = null;
     this.changeStream = this.db.collection(this.collection).watch({resumeAfter: this.resumeToken, fullDocument: 'updateLookup'});
     this._addChangeListener();
@@ -62,8 +63,8 @@ class CollectionManager {
 
   _addChangeListener() {
     this.changeStream.on('change', (change) => {
-      console.log('change event', change.operationType);
       if (change.operationType === 'invalidate') {
+        logger.info(`${this.collection} invalidate`);
         this.resetChangeStream(true);
         return;
       }
@@ -81,7 +82,7 @@ class CollectionManager {
 
   _addErrorListener() {
     this.changeStream.on('error', (error) => {
-      console.log(this.collection,' changeStream error', error);
+      logger.error(`${this.collection} changeStream error: ${error}`);
       // resume of change stream was not possible, as the resume token was not found
       if (error.code === 40585 || error.code === 40615) {
         this.resetChangeStream(true);
@@ -95,7 +96,7 @@ class CollectionManager {
     if (dump) {
       this.resumeToken = null;
       await this.elasticManager.deleteElasticCollection(this.collection);
-      await this.dumpCollection().catch(err => console.log(err));
+      await this.dumpCollection().catch(err => logger.error(`Error dumping collection: ${err}`));
     }
     this.watch();
   }

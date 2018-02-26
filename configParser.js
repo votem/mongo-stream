@@ -1,6 +1,7 @@
 const version = require('./package.json').version;
 const program = require('commander');
 const fs = require('fs');
+const logger = new (require('service-logger'))(__filename);
 
 program
   .version(version)
@@ -14,11 +15,14 @@ program
   .option('--db <value>', 'Specifies the database to connect to on the mongoDB server')
   .option('--bulkSize <n>', 'Specifies the size of bulk requests to operate on')
   .option('--adminPort <n>', 'Specifies the port that mongo-stream will listen to')
+  .option('-l, --logLevel <value>', 'specifies the severity level for printing logs (allowed values are in the log levels section of https://www.npmjs.com/package/winston-syslog)')
   .parse(process.argv);
 
+// First parse everything from the specified config file, then replace with command line args
 const CONFIG = require(program.config);
 
-// First parse everything from the specified config file, then replace with command line args
+// set log level for service-logger
+logger.logLevel = program.logLevel || CONFIG.logLevel || 'info';
 
 // build mongo connection url
 let url = 'mongodb://';
@@ -63,11 +67,11 @@ if (mongoOpts.ssl) {
 const COLL_NAME_MAX_LENGTH = 110;
 CONFIG.mongo.collections.forEach((collection) => {
   if(collection.length > COLL_NAME_MAX_LENGTH){
-    console.log(`WARNING: The collection ${collection} is ${collection.length - COLL_NAME_MAX_LENGTH} characters too large.  Mongo does not allow names to be larger that 120 bytes.(https://docs.mongodb.com/manual/reference/limits/#Restriction-on-Collection-Names)`);
+    logger.warn(`The collection ${collection} is ${collection.length - COLL_NAME_MAX_LENGTH} characters too large.  Mongo does not allow names to be larger that 120 bytes.(https://docs.mongodb.com/manual/reference/limits/#Restriction-on-Collection-Names)`);
   }
 });
 
-const parentChildRelations = CONFIG.parentChildRelations || []
+const parentChildRelations = CONFIG.parentChildRelations || [];
 
 const initOpts = {
   adminPort,

@@ -1,5 +1,4 @@
 const MongoClient = require('mongodb').MongoClient;
-
 const ElasticManager = require('./elasticManager');
 const CollectionManager = require('./CollectionManager');
 
@@ -12,7 +11,7 @@ class MongoStream {
 
     // after successful reconnection to mongo, restart all change streams
     db.on('reconnect', () => {
-      console.log('connection reestablished with mongoDB');
+      logger.info('connection reestablished with mongoDB');
       const collectionManagers = Object.values(this.collectionManagers);
       collectionManagers.forEach(manager => {
         manager.getResumeToken();
@@ -34,10 +33,10 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     // log any db events emitted
-    db.on('close', (err) => {console.log('close ',err)});
-    db.on('error', (err) => {console.log('error ',err)});
-    db.on('parseError', (err) => {console.log('parseError ',err)});
-    db.on('timeout', (err) => {console.log('timeout ',err)});
+    db.on('close', (log) => {logger.debug(`close ${log}`)});
+    db.on('error', (err) => {logger.error(`db Error: ${err}`)});
+    db.on('parseError', (err) => {logger.error(`db parseError ${err}`)});
+    db.on('timeout', (err) => {logger.error(`db timeout ${err}`)});
 
     await db.createCollection('init');  // workaround for "MongoError: cannot open $changeStream for non-existent database"
     await db.dropCollection('init');
