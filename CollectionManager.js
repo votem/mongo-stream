@@ -53,7 +53,7 @@ class CollectionManager {
   }
 
   watch(ignoreResumeToken = false) {
-    logger.info('new watcher for collection', this.collection);
+    logger.info(`new watcher for collection ${this.collection}`);
     if (ignoreResumeToken) this.resumeToken = null;
     this.changeStream = this.db.collection(this.collection).watch({resumeAfter: this.resumeToken, fullDocument: 'updateLookup'});
     this._addChangeListener();
@@ -76,7 +76,7 @@ class CollectionManager {
 
   _addCloseListener() {
     this.changeStream.on('close', () => {
-      this.removeChangeStream();
+      logger.info(`the changestream for ${this.collection} has closed`);
     });
   }
 
@@ -92,7 +92,7 @@ class CollectionManager {
   }
 
   async resetChangeStream(dump = false) {
-    delete this.changeStream;
+    this.removeChangeStream();
     if (dump) {
       this.resumeToken = null;
       await this.elasticManager.deleteElasticCollection(this.collection);
