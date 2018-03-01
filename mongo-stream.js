@@ -1,7 +1,7 @@
 const MongoClient = require('mongodb').MongoClient;
 const ElasticManager = require('./elasticManager');
 const CollectionManager = require('./CollectionManager');
-
+const logger = new (require('service-logger'))(__filename);
 
 class MongoStream {
   constructor(elasticManager, db, resumeTokenInterval = 60000) {
