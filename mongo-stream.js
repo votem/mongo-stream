@@ -21,10 +21,7 @@ class MongoStream {
 
     // write resume tokens to file on an interval
     setInterval(() => {
-      const collectionManagers = Object.values(this.collectionManagers);
-      collectionManagers.forEach(manager => {
-        manager.writeResumeToken();
-      });
+      this.writeAllResumeTokens();
     }, resumeTokenInterval);
   }
 
@@ -33,10 +30,14 @@ class MongoStream {
     const client = await MongoClient.connect(options.url, options.mongoOpts);
     const db = client.db(options.db);
     // log any db events emitted
-    db.on('close', (log) => {logger.debug(`close ${log}`)});
+    db.on('close', (log) => {logger.info(`close ${log}`)});
     db.on('error', (err) => {logger.error(`db Error: ${err}`)});
     db.on('parseError', (err) => {logger.error(`db parseError ${err}`)});
-    db.on('timeout', (err) => {logger.error(`db timeout ${err}`)});
+    db.on('timeout', (err) => {
+      logger.error(`db timeout ${err}`);
+      this.writeAllResumeTokens();
+      process.exit();
+    });
 
     await db.createCollection('init');  // workaround for "MongoError: cannot open $changeStream for non-existent database"
     await db.dropCollection('init');
@@ -52,6 +53,13 @@ class MongoStream {
     await mongoStream.addCollectionManager(options.collections, managerOptions);
 
     return mongoStream;
+  }
+
+  writeAllResumeTokens() {
+    const collectionManagers = Object.values(this.collectionManagers);
+    collectionManagers.forEach(manager => {
+      manager.writeResumeToken();
+    });
   }
 
   // accepts single collection or array

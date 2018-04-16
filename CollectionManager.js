@@ -83,11 +83,7 @@ class CollectionManager {
   _addErrorListener() {
     this.changeStream.on('error', (error) => {
       logger.error(`${this.collection} changeStream error: ${error}`);
-      // resume of change stream was not possible, as the resume token was not found
-      if (error.code === 40585 || error.code === 40615) {
-        this.resetChangeStream(true);
-      }
-
+      this.resetChangeStream(false);
     });
   }
 
@@ -110,7 +106,6 @@ class CollectionManager {
     });
     delete this.changeStream;
     this.writeResumeToken();
-    this.resumeToken = null;
   }
 
   getResumeToken() {
@@ -134,6 +129,7 @@ class CollectionManager {
     if (!this.resumeToken) return;
     const b64String = bson.serialize(this.resumeToken).toString('base64');
     fs.writeFileSync(`./resumeTokens/${this.collection}`, b64String, 'base64');
+    logger.debug(`resumeToken for collection ${this.collection} saved to disk`);
   }
 
   removeResumeToken() {
