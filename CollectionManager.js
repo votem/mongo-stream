@@ -19,12 +19,16 @@ class CollectionManager {
     let requestCount = 0;
     let bulkOp = [];
     let nextObject;
+    let startTime = new Date();
+    let currentBulkRequest = Promise.resolve();
     for (let i = 0; i < count; i++) {
       if (bulkOp.length !== 0 && bulkOp.length % (this.elasticManager.bulkSize * 2) === 0) {
         requestCount += (bulkOp.length/2);
-        logger.info(`${this.collection} request progress: ${requestCount}/${count}`);
-        await this.elasticManager.sendBulkRequest(bulkOp);
+        let currentTime = (new Date() - startTime) / 1000;
+        await currentBulkRequest;
+        currentBulkRequest = this.elasticManager.sendBulkRequest(bulkOp);
         bulkOp = [];
+        logger.info(`${this.collection} request progress: ${requestCount}/${count} - ${(requestCount/currentTime).toFixed(2)} docs/sec`);
       }
 
       nextObject = await cursor.next().catch(err => logger.error(`next object error ${err}`));
@@ -48,6 +52,7 @@ class CollectionManager {
     }
     requestCount += (bulkOp.length/2);
     logger.info(`${this.collection} FINAL request progress: ${requestCount}/${count}`);
+    await currentBulkRequest;
     await this.elasticManager.sendBulkRequest(bulkOp); // last bits
     logger.info('done');
   }
