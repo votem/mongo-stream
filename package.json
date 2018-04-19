@@ -20,11 +20,11 @@
   "author": "Ben Davis <bjamin.davis@gmail.com> (https://github.com/badavis)",
   "license": "MIT",
   "dependencies": {
-    "bson": "^1.0.4",
-    "commander": "^2.13.0",
-    "elasticsearch": "^14.0.0",
-    "express": "^4.16.2",
-    "mongodb": "^3.0.1",
-    "service-logger": "^1.0.3"
+    "bson": "1.0.4",
+    "commander": "2.13.0",
+    "elasticsearch": "14.1.0",
+    "express": "4.16.2",
+    "mongodb": "3.0.2",
+    "service-logger": "1.0.3"
   }
 }
