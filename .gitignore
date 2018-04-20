@@ -3,7 +3,6 @@ node_modules
 *.env
 *.pem
 resumeTokens/*
-!test.env
 docker-compose.yaml
 package-lock.json
 config/*

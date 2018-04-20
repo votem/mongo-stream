@@ -36,8 +36,6 @@ class CollectionManager {
         break;
       }
 
-      let parentId = this.elasticManager.getParentId(nextObject, this.elasticManager.mappings[this.collection].type);
-
       const _id = nextObject._id;
       delete nextObject._id;
       bulkOp.push({
@@ -45,7 +43,7 @@ class CollectionManager {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
           _id: _id,
-          _parent:parentId
+          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
         }
       });
       bulkOp.push(nextObject);
@@ -88,7 +86,13 @@ class CollectionManager {
   _addErrorListener() {
     this.changeStream.on('error', (error) => {
       logger.error(`${this.collection} changeStream error: ${error}`);
-      this.resetChangeStream(false);
+      // resume of change stream was not possible, as the resume token was not found
+      if (error.code === 40585 || error.code === 40615) {
+        this.resetChangeStream(true);
+      }
+      else {
+        this.resetChangeStream(false);
+      }
     });
   }
 
