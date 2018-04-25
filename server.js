@@ -36,6 +36,7 @@ app.post('/collection-manager?', (request, response) => {
   const managerOptions = {
     dump: request.body.dump,
     ignoreResumeTokens: request.body.ignoreResumeTokens,
+    ignoreDumpProgress: request.body.ignoreDumpProgress,
     watch: request.body.watch
   };
 

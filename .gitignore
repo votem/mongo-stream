@@ -8,3 +8,4 @@ docker-compose.yaml
 package-lock.json
 config/*
 !/config/default.json
+dumpProgress.json

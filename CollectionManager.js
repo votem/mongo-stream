@@ -2,6 +2,8 @@ const BSON = require('bson');
 const bson = new BSON();
 const fs = require('fs');
 const logger = new (require('service-logger'))(__filename);
+const ObjectId = require('mongodb').ObjectId;
+let dumpProgressMap = {};
 
 class CollectionManager {
   constructor(db, collection, elasticManager, resumeTokenCollection) {
@@ -13,9 +15,13 @@ class CollectionManager {
     this.resumeTokenCollection = resumeTokenCollection;
     this.changeStream;
   }
-  async dumpCollection() {
-    const cursor = this.db.collection(this.collection).find({}, {});
-    const count = await this.db.collection(this.collection).count();
+
+  async dumpCollection(dumpProgress) {
+    if (!dumpProgress) {
+      dumpProgress = ObjectId('000000000000000000000000');
+    }
+    const cursor = this.db.collection(this.collection).find({"_id":{$gt:dumpProgress}});
+    const count = await cursor.count();
     let requestCount = 0;
     let bulkOp = [];
     let nextObject;
@@ -29,6 +35,7 @@ class CollectionManager {
         currentBulkRequest = this.elasticManager.sendBulkRequest(bulkOp);
         bulkOp = [];
         logger.info(`${this.collection} request progress: ${requestCount}/${count} - ${(requestCount/currentTime).toFixed(2)} docs/sec`);
+        fs.writeFile('./dumpProgress.json', JSON.stringify(dumpProgressMap));
       }
 
       nextObject = await cursor.next().catch(err => logger.error(`next object error ${err}`));
@@ -36,14 +43,13 @@ class CollectionManager {
         break;
       }
 
-      const _id = nextObject._id;
+      dumpProgressMap[this.collection] = nextObject._id;
       delete nextObject._id;
       bulkOp.push({
         index:  {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
-          _id: _id,
-          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
+        _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
         }
       });
       bulkOp.push(nextObject);
@@ -160,6 +166,22 @@ class CollectionManager {
       this.resumeToken = null;
     }
   }
+
+  getDumpProgress() {
+    if (!fs.existsSync('./dumpProgress.json')) {
+      return null;
+    }
+
+    dumpProgressMap = JSON.parse(fs.readFileSync('./dumpProgress.json'));
+
+    if (dumpProgressMap[this.collection]) {
+      return ObjectId(dumpProgressMap[this.collection]);
+    }
+    else {
+      return null;
+    }
+  }
+
 
   writeResumeToken() {
     if (!this.resumeToken) return;

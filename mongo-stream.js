@@ -71,8 +71,12 @@ class MongoStream {
     for (const collection of collections) {
       const collectionManager = new CollectionManager(this.db, collection, this.elasticManager, options.resumeTokenCollection);
       if (options.dump) {
-        await collectionManager.elasticManager.deleteElasticCollection(collection);
-        await collectionManager.dumpCollection();
+        let dumpProgress = collectionManager.getDumpProgress();
+        if (options.ignoreDumpProgress || !dumpProgress) {
+          dumpProgress = null;
+          await collectionManager.elasticManager.deleteElasticCollection(collection);
+        }
+        await collectionManager.dumpCollection(dumpProgress);
       }
       if (options.watch) { collectionManager.watch(options.ignoreResumeTokens) }
 
