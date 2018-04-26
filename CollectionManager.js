@@ -24,8 +24,7 @@ class CollectionManager {
       dumpProgressMap[this.collection] = ObjectId('000000000000000000000000');
     }
 
-    const startingPoint = dumpProgressMap[this.collection];
-    let cursor = this.db.collection(this.collection).find({"_id":{$gt:startingPoint}});
+    let cursor = this.db.collection(this.collection).find({"_id":{$gt:dumpProgressMap[this.collection]}});
     const count = await cursor.count();
     let requestCount = 0;
     let bulkOp = [];
@@ -37,7 +36,7 @@ class CollectionManager {
         logger.info('Dump pause signal received');
         await pauseDump.promise;
         logger.info('Dump resume signal received. Re-instantiating find cursor');
-        cursor = this.db.collection(this.collection).find({"_id":{$gt:startingPoint}});
+        cursor = this.db.collection(this.collection).find({"_id":{$gt:dumpProgressMap[this.collection]}});
       }
 
       if (bulkOp.length !== 0 && bulkOp.length % (this.elasticManager.bulkSize * 2) === 0) {
