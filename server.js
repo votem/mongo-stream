@@ -6,6 +6,7 @@ const bodyParser = require('body-parser');
 app.use(bodyParser.json()); // for parsing application/json
 const logger = new (require('service-logger'))(__filename);
 const MongoStream = require('./mongo-stream');
+const CollectionManager = require('./CollectionManager');
 let mongoStream;
 
 const config = require('./configParser');
@@ -49,10 +50,21 @@ app.post('/collection-manager?', (request, response) => {
     });
 });
 
-// manually set the bulk size for replication testing
-app.put('/bulk=:bulkSize', (request, response) => {
-  response.send(`bulk size set from ${mongoStream.elasticManager.bulkSize} to ${request.params.bulkSize}`);
-  mongoStream.elasticManager.bulkSize = Number(request.params.bulkSize);
+// toggle dump process
+app.put('/dump/:toggle', (request, response) => {
+  switch(request.params.toggle) {
+    case 'pause':
+      CollectionManager.pauseDump();
+      response.send('Dump paused. To resume, use "/dump/resume"');
+      break;
+    case 'resume':
+      CollectionManager.resumeDump();
+      response.send('Dump resumed.');
+      break;
+    default:
+      response.send(`ERROR: unknown dump option "${request.params.toggle}"`);
+      break;
+  }
 });
 
 // triggers a remove for the specified collections
