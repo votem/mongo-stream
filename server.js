@@ -25,6 +25,11 @@ app.get('/', (request, response) => {
   response.send(responseBody);
 });
 
+// returns the status of all collectionManagers currently running
+app.get('/mappings', (request, response) => {
+  response.send(mongoStream.elasticManager.mappings);
+});
+
 app.post('/collection-manager?', (request, response) => {
   logger.info(request.body);
   const collections = request.body.collections;
