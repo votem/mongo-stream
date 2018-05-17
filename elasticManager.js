@@ -78,8 +78,8 @@ class ElasticManager {
       type: collection.type,
       q: `_id:${childId}`
     });
-    try{
-      return doc.responses[0].hits.hits[0]._parent
+    try {
+      return doc.hits.hits[0]._parent
     } catch(err) {
       logger.error(`cannot find item of type ${collection.type} with id ${childId}`);
     }
