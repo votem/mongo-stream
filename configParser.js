@@ -88,6 +88,7 @@ const initOpts = {
   },
   collections: CONFIG.mongo.collections,
   resumeTokenInterval: CONFIG.resumeTokenInterval,
+  resumeTokenCollection: CONFIG.resumeTokenCollection,
   ignoreResumeTokensOnStart: CONFIG.ignoreResumeTokensOnStart,
   dumpOnStart: CONFIG.dumpOnStart,
   parentChildRelations: parentChildRelations
