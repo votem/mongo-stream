@@ -139,7 +139,7 @@ class ElasticManager {
       if (this.mappings[collection].index === "$self")
         this.mappings[collection].index = collection;
     }
-    if (!this.mappings[collection.type]) {
+    if (!this.mappings[collection].type) {
       this.mappings[collection].type = this.mappings.default.type;
       if (this.mappings[collection].type === "$self")
         this.mappings[collection].type = collection;
