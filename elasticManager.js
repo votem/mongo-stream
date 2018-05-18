@@ -2,13 +2,12 @@ const elasticsearch = require('elasticsearch');
 const logger = new (require('service-logger'))(__filename);
 
 class ElasticManager {
-  constructor(elasticOpts, mappings, bulkSize, parentChildRelations) {
+  constructor(elasticOpts, mappings, bulkSize) {
     this.esClient = new elasticsearch.Client(elasticOpts);
     this.mappings = mappings;
     this.bulkSize = bulkSize;
     this.bulkOp = [];
     this.interval = null;
-    this.parentChildRelations = parentChildRelations;
   }
 
   // Calls the appropriate replication function based on the change object parsed from a change stream
@@ -43,30 +42,16 @@ class ElasticManager {
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
 
-    let parentId = this.getParentId(esReadyDoc, this.mappings[changeStreamObj.ns.coll].type);
-
     this.bulkOp.push({
         index:  {
           _index: this.mappings[changeStreamObj.ns.coll].index,
           _type: this.mappings[changeStreamObj.ns.coll].type,
           _id: esId,
-          _parent:parentId
+          _parent: esReadyDoc[this.mappings[changeStreamObj.ns.coll].parentId]
         }
       });
     this.bulkOp.push(esReadyDoc);
   }
-
-  getParentId(document, type){
-    let thisParentId = null;
-    this.parentChildRelations.forEach((relation) => {
-      if(relation.childCollection === type){
-        thisParentId = document[relation.childsParentIdField];
-      }
-    });
-    return thisParentId;
-  }
-
-
 
   async deleteDoc(changeStreamObj) {
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
@@ -88,27 +73,17 @@ class ElasticManager {
 //find a parent Id of a document by searching for the document and pulling that Id out.
 //returns null if the collection is not a child collection or does not contain a document with the given Id.
   async findParentId(collection, childId){
-    let parentId = null
-    for (let relation of this.parentChildRelations){
-      if(relation.childCollection === collection.type){
-        let doc = await this.esClient.msearch({
-          body:[
-            { index: collection.index, type: collection.type },
-            { query: {
-              "match": {
-                 "_id": childId
-              }
-            }}
-          ]
-        });
-        try{
-          parentId = doc.responses[0].hits.hits[0]._parent
-        } catch(err) {
-          logger.error(`cannot find item of type ${collection.type} with id ${childId}`);
-        }
-      }
+    let doc = await this.esClient.search({
+      index: collection.index,
+      type: collection.type,
+      q: `_id:${childId}`
+    });
+    try {
+      return doc.hits.hits[0]._parent
+    } catch(err) {
+      logger.error(`cannot find item of type ${collection.type} with id ${childId}`);
     }
-    return parentId;
+    return null;
   }
 
   // delete all docs in ES before dumping the new docs into it
@@ -156,13 +131,15 @@ class ElasticManager {
 
   setMappings(collection) {
     // set up mappings between mongo and elastic if they do not yet exist
-    if (!this.mappings[collection]) this.mappings[collection] = {};
+    if (!this.mappings[collection]) {
+      this.mappings[collection] = {};
+    }
     if (!this.mappings[collection].index) {
       this.mappings[collection].index = this.mappings.default.index;
       if (this.mappings[collection].index === "$self")
         this.mappings[collection].index = collection;
     }
-    if (!this.mappings[collection.type]) {
+    if (!this.mappings[collection].type) {
       this.mappings[collection].type = this.mappings.default.type;
       if (this.mappings[collection].type === "$self")
         this.mappings[collection].type = collection;

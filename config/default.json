@@ -17,10 +17,13 @@
   "ignoreResumeTokensOnStart": false,
   "dumpOnStart": false,
   "resumeTokenInterval": 60000,
-  "parentChildRelations":[{
-    "parentCollection":"customer",
-    "childCollection":"order",
-    "childsParentIdField":"customerId"
-  }],
+  "mappings": {
+    "order": {
+      "index": "test",
+      "type": "$self",
+      "parent": "customer",
+      "parentId": "customerId"
+    }
+  },
   "logLevel": "info"
 }

@@ -15,7 +15,7 @@ class MongoStream {
       const collectionManagers = Object.values(this.collectionManagers);
       collectionManagers.forEach(manager => {
         manager.getResumeToken();
-        manager.resetChangeStream();
+        manager.resetChangeStream({dump: false, ignoreResumeToken: false});
       });
     });
 
