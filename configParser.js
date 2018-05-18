@@ -15,7 +15,8 @@ program
   .option('--db <value>', 'Specifies the database to connect to on the mongoDB server')
   .option('--bulkSize <n>', 'Specifies the size of bulk requests to operate on')
   .option('--adminPort <n>', 'Specifies the port that mongo-stream will listen to')
-  .option('-l, --logLevel <value>', 'specifies the severity level for printing logs (allowed values are in the log levels section of https://www.npmjs.com/package/winston-syslog)')
+  .option('--mappings <path>', 'Specifies the path to a file containing mappings from mongo collections to elasticsearch routes')
+  .option('-l, --logLevel <value>', 'Specifies the severity level for printing logs (allowed values are in the log levels section of https://www.npmjs.com/package/winston-syslog)')
   .parse(process.argv);
 
 // First parse everything from the specified config file, then replace with command line args
@@ -71,7 +72,19 @@ CONFIG.mongo.collections.forEach((collection) => {
   }
 });
 
-const parentChildRelations = CONFIG.parentChildRelations || [];
+// set mappings; prioritizing CL args, then config, then default value
+const mappings = {
+  "default": {
+    "index": db,
+    "type": "$self"
+  }
+};
+if (program.mappings) {
+  Object.assign(mappings, require(program.mappings));
+}
+else if (CONFIG.mappings) {
+  Object.assign(mappings, CONFIG.mappings);
+}
 
 const initOpts = {
   adminPort,
@@ -79,19 +92,13 @@ const initOpts = {
   db,
   url,
   mongoOpts,
+  mappings,
   elasticOpts: CONFIG.elasticsearch,
-  mappings: {
-    "default": {
-      "index": db,
-      "type": "$self"
-    }
-  },
   collections: CONFIG.mongo.collections,
   resumeTokenInterval: CONFIG.resumeTokenInterval,
   resumeTokenCollection: CONFIG.resumeTokenCollection,
   ignoreResumeTokensOnStart: CONFIG.ignoreResumeTokensOnStart,
-  dumpOnStart: CONFIG.dumpOnStart,
-  parentChildRelations: parentChildRelations
+  dumpOnStart: CONFIG.dumpOnStart
 };
 
 module.exports = initOpts;

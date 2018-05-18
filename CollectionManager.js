@@ -36,8 +36,6 @@ class CollectionManager {
         break;
       }
 
-      let parentId = this.elasticManager.getParentId(nextObject, this.elasticManager.mappings[this.collection].type);
-
       const _id = nextObject._id;
       delete nextObject._id;
       bulkOp.push({
@@ -45,7 +43,7 @@ class CollectionManager {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
           _id: _id,
-          _parent:parentId
+          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
         }
       });
       bulkOp.push(nextObject);
@@ -75,7 +73,7 @@ class CollectionManager {
     this.changeStream.on('change', (change) => {
       if (change.operationType === 'invalidate') {
         logger.info(`${this.collection} invalidate`);
-        this.resetChangeStream(true);
+        this.resetChangeStream({dump: true, ignoreResumeToken: true});
         return;
       }
 
@@ -93,16 +91,26 @@ class CollectionManager {
   _addErrorListener() {
     this.changeStream.on('error', (error) => {
       logger.error(`${this.collection} changeStream error: ${error}`);
-      this.resetChangeStream(false);
+      // 40585: resume of change stream was not possible, as the resume token was not found
+      // 40615: The resume token UUID does not exist. Has the collection been dropped?
+      if (error.code === 40585 || error.code === 40615) {
+        this.resetChangeStream({ignoreResumeToken: true});
+      }
+      else {
+        this.resetChangeStream({ignoreResumeToken: false});
+      }
     });
   }
 
-  async resetChangeStream(dump = false) {
+  async resetChangeStream({dump, ignoreResumeToken}) {
     this.removeChangeStream();
     if (dump) {
       this.resumeToken = null;
       await this.elasticManager.deleteElasticCollection(this.collection);
       await this.dumpCollection().catch(err => logger.error(`Error dumping collection: ${err}`));
+    }
+    if (ignoreResumeToken) {
+      this.resumeToken = null;
     }
     this.watch();
   }
