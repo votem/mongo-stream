@@ -20,7 +20,7 @@ class CollectionManager {
   }
 
   async dumpCollection(ignoreDumpProgress) {
-    if (ignoreDumpProgress) {
+    if (ignoreDumpProgress || !dumpProgressMap[this.collection]) {
       dumpProgressMap[this.collection] = ObjectId('000000000000000000000000');
     }
 
@@ -60,7 +60,8 @@ class CollectionManager {
         index:  {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
-        _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
+          _id: dumpProgressMap[this.collection],
+          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
         }
       });
       bulkOp.push(nextObject);
