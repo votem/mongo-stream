@@ -38,6 +38,7 @@ class ElasticManager {
 
 // insert event format https://docs.mongodb.com/manual/reference/change-events/#insert-event
   insertDoc(changeStreamObj) {
+    if (changeStreamObj.fullDocument === null) return;
     const esId = changeStreamObj.fullDocument._id.toString(); // convert mongo ObjectId to string
     delete changeStreamObj.fullDocument._id;
     const esReadyDoc = changeStreamObj.fullDocument;
