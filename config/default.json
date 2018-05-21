@@ -22,7 +22,9 @@
       "index": "test",
       "type": "$self",
       "parent": "customer",
-      "parentId": "customerId"
+      "parentId": "customerId",
+      "versionType": "external",
+      "versionField": "updatedAt"
     }
   },
   "logLevel": "info"

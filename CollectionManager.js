@@ -2,6 +2,7 @@ const BSON = require('bson');
 const bson = new BSON();
 const fs = require('fs');
 const logger = new (require('service-logger'))(__filename);
+const util = require('./util');
 
 class CollectionManager {
   constructor(db, collection, elasticManager) {
@@ -43,7 +44,9 @@ class CollectionManager {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
           _id: _id,
-          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
+          _parent: nextObject[this.elasticManager.mappings[this.collection].parentId],
+          _versionType: this.elasticManager.mappings[this.collection].versionType,
+          _version: util.getVersionAsInteger(nextObject[this.elasticManager.mappings[this.collection].versionField])
         }
       });
       bulkOp.push(nextObject);
