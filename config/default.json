@@ -17,6 +17,7 @@
   "ignoreResumeTokensOnStart": false,
   "dumpOnStart": false,
   "resumeTokenInterval": 60000,
+  "resumeTokenCollection": "",
   "mappings": {
     "order": {
       "index": "test",

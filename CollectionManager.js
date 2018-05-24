@@ -4,15 +4,15 @@ const fs = require('fs');
 const logger = new (require('service-logger'))(__filename);
 
 class CollectionManager {
-  constructor(db, collection, elasticManager) {
+  constructor(db, collection, elasticManager, resumeTokenCollection) {
     this.db = db;
     this.elasticManager = elasticManager;
     this.collection = collection;
     this.elasticManager.setMappings(collection);
-    this.resumeToken = this.getResumeToken();
+    this.resumeToken = null;
+    this.resumeTokenCollection = resumeTokenCollection;
     this.changeStream;
   }
-
   async dumpCollection() {
     const cursor = this.db.collection(this.collection).find({}, {});
     const count = await this.db.collection(this.collection).count();
@@ -55,9 +55,14 @@ class CollectionManager {
     logger.info('done');
   }
 
-  watch(ignoreResumeToken = false) {
+  async watch(ignoreResumeToken = false) {
     logger.info(`new watcher for collection ${this.collection}`);
-    if (ignoreResumeToken) this.resumeToken = null;
+    if (ignoreResumeToken) {
+      this.resumeToken = null;
+    } else {
+      await this.getResumeToken();
+    }
+
     this.changeStream = this.db.collection(this.collection).watch({resumeAfter: this.resumeToken, fullDocument: 'updateLookup'});
     this._addChangeListener();
     this._addCloseListener();
@@ -121,28 +126,68 @@ class CollectionManager {
     this.writeResumeToken();
   }
 
-  getResumeToken() {
+  hasResumeToken() {
+    return !!this.resumeToken;
+  }
+
+  async getResumeToken() {
     if (!this.resumeToken) {
-      try {
-        const base64Buffer = fs.readFileSync(`./resumeTokens/${this.collection}`);
-        this.resumeToken = bson.deserialize(base64Buffer);
-      } catch (err) {
-        this.resumeToken = null;
+      if (this.resumeTokenCollection) {
+        await this.getResumeTokenFromCollection();
+      } else {
+        this.getResumeTokenFromFile();
       }
     }
 
     return this.resumeToken;
   }
 
-  hasResumeToken() {
-    return !!this.resumeToken;
+  async getResumeTokenFromCollection() {
+    try {
+      const { token } = await this.db.collection(this.resumeTokenCollection).findOne({ _id: this.collection })
+      this.resumeToken = token;
+    } catch (err) {
+      logger.debug(`resumeToken for ${this.collection} could not be retrieved from database`);
+      this.resumeToken = null;
+    }
+  }
+
+  getResumeTokenFromFile() {
+    try {
+      const base64Buffer = fs.readFileSync(`./resumeTokens/${this.collection}`);
+      this.resumeToken = bson.deserialize(base64Buffer);
+    } catch (err) {
+      this.resumeToken = null;
+    }
   }
 
   writeResumeToken() {
     if (!this.resumeToken) return;
+
+    if (this.resumeTokenCollection) {
+      this.writeResumeTokenToCollection()
+    } else {
+      this.writeResumeTokenToFile();
+    }
+  }
+
+  writeResumeTokenToFile() {
     const b64String = bson.serialize(this.resumeToken).toString('base64');
     fs.writeFileSync(`./resumeTokens/${this.collection}`, b64String, 'base64');
     logger.debug(`resumeToken for collection ${this.collection} saved to disk`);
+  }
+
+  writeResumeTokenToCollection() {
+    try {
+      this.db.collection(this.resumeTokenCollection).updateOne(
+        { _id: this.collection },
+        { $set: { token: this.resumeToken }},
+        { upsert: true },
+      );
+      logger.debug(`resumeToken for collection ${this.collection} saved to database`);
+    } catch (err) {
+      logger.debug(`resumeToken for collection ${this.collection} could not be saved to database`);
+    }
   }
 
   removeResumeToken() {

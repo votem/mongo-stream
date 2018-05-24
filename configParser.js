@@ -96,6 +96,7 @@ const initOpts = {
   elasticOpts: CONFIG.elasticsearch,
   collections: CONFIG.mongo.collections,
   resumeTokenInterval: CONFIG.resumeTokenInterval,
+  resumeTokenCollection: CONFIG.resumeTokenCollection,
   ignoreResumeTokensOnStart: CONFIG.ignoreResumeTokensOnStart,
   dumpOnStart: CONFIG.dumpOnStart
 };
