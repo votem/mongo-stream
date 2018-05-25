@@ -47,7 +47,6 @@ class MongoStream {
     const managerOptions = {
       dump: options.dumpOnStart,
       ignoreResumeTokens: options.ignoreResumeTokensOnStart,
-      resumeTokenCollection: options.resumeTokenCollection,
       watch: true
     };
 
@@ -69,12 +68,15 @@ class MongoStream {
     await this.removeCollectionManager(collections);
 
     for (const collection of collections) {
-      const collectionManager = new CollectionManager(this.db, collection, this.elasticManager, options.resumeTokenCollection);
+      const collectionManager = new CollectionManager(this.db, collection, this.elasticManager);
       if (options.dump) {
-        if (options.ignoreDumpProgress || !collectionManager.getDumpProgress()) {
+        await collectionManager.getDumpProgress();
+
+        if (options.ignoreDumpProgress || collectionManager.dumpProgress.count === 0) {
           await collectionManager.elasticManager.deleteElasticCollection(collection);
+          collectionManager.resetDumpProgress();
         }
-        await collectionManager.dumpCollection(options.ignoreDumpProgress);
+        await collectionManager.dumpCollection();
       }
       if (options.watch) { collectionManager.watch(options.ignoreResumeTokens) }
 

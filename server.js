@@ -10,6 +10,7 @@ const CollectionManager = require('./CollectionManager');
 let mongoStream;
 
 const config = require('./configParser');
+CollectionManager.initializeStaticVariables(config.dumpProgressCollection, config.resumeTokenCollection);
 
 // returns the status of all collectionManagers currently running
 app.get('/', (request, response) => {
@@ -26,7 +27,7 @@ app.get('/', (request, response) => {
   response.send(responseBody);
 });
 
-// returns the status of all collectionManagers currently running
+// returns the mappings of all collectionManagers currently running
 app.get('/mappings', (request, response) => {
   response.send(mongoStream.elasticManager.mappings);
 });

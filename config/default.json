@@ -17,13 +17,14 @@
   "ignoreResumeTokensOnStart": false,
   "dumpOnStart": false,
   "resumeTokenInterval": 60000,
-  "resumeTokenCollection": "",
+  "resumeTokenCollection": "resumeToken",
+  "dumpProgressCollection": "dumpProgress",
   "mappings": {
-    "order": {
+    "childCollectionName": {
       "index": "test",
       "type": "$self",
-      "parent": "customer",
-      "parentId": "customerId"
+      "parent": "parentCollectionName",
+      "parentId": "childFieldPointingToParent"
     }
   },
   "logLevel": "info"

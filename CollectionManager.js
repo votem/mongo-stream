@@ -4,49 +4,49 @@ const fs = require('fs');
 const logger = new (require('service-logger'))(__filename);
 const ObjectId = require('mongodb').ObjectId;
 
-// Static variables
-let dumpProgressMap = {};
-const pauseDump = {};
 
 class CollectionManager {
-  constructor(db, collection, elasticManager, resumeTokenCollection) {
+  constructor(db, collection, elasticManager) {
     this.db = db;
     this.elasticManager = elasticManager;
     this.collection = collection;
     this.elasticManager.setMappings(collection);
     this.resumeToken = null;
-    this.resumeTokenCollection = resumeTokenCollection;
-    this.changeStream;
+    this.dumpProgress = null;
   }
 
-  async dumpCollection(ignoreDumpProgress) {
-    if (ignoreDumpProgress || !dumpProgressMap[this.collection]) {
-      dumpProgressMap[this.collection] = ObjectId('000000000000000000000000');
-    }
+  static initializeStaticVariables(dumpProgress, resumeToken) {
+    CollectionManager.dumpProgressCollection = dumpProgress;
+    CollectionManager.resumeTokenCollection = resumeToken;
+    CollectionManager.dumpPause = {};
+  }
 
-    let cursor = this.db.collection(this.collection).find({"_id":{$gt:dumpProgressMap[this.collection]}});
-    const count = await cursor.count();
-    let requestCount = 0;
+  async dumpCollection() {
+    let cursor = this.db.collection(this.collection).find({"_id":{$gt:ObjectId(this.dumpProgress.token)}});
+    const count = (await cursor.count()) + this.dumpProgress.count;
+
     let bulkOp = [];
     let nextObject;
     let startTime = new Date();
     let currentBulkRequest = Promise.resolve();
+
+    // TODO: the params in this for loop are nonsense, we should turn this into a while loop, but I don't want to rock the boat in this commit
     for (let i = 0; i < count; i++) {
-      if (pauseDump.promise) {
+      if (CollectionManager.dumpPause.promise) {
         logger.info('Dump pause signal received');
-        await pauseDump.promise;
+        await CollectionManager.dumpPause.promise;
         logger.info('Dump resume signal received. Re-instantiating find cursor');
-        cursor = this.db.collection(this.collection).find({"_id":{$gt:dumpProgressMap[this.collection]}});
+        cursor = this.db.collection(this.collection).find({"_id":{$gt:ObjectId(this.dumpProgress.token)}});
       }
 
       if (bulkOp.length !== 0 && bulkOp.length % (this.elasticManager.bulkSize * 2) === 0) {
-        requestCount += (bulkOp.length/2);
         let currentTime = (new Date() - startTime) / 1000;
+        logger.info(`${this.collection} request progress: ${this.dumpProgress.count}/${count} - ${(this.dumpProgress.count/currentTime).toFixed(2)} docs/sec`);
+        this.dumpProgress.count += (bulkOp.length/2);
         await currentBulkRequest;
         currentBulkRequest = this.elasticManager.sendBulkRequest(bulkOp);
         bulkOp = [];
-        logger.info(`${this.collection} request progress: ${requestCount}/${count} - ${(requestCount/currentTime).toFixed(2)} docs/sec`);
-        fs.writeFile('./dumpProgress.json', JSON.stringify(dumpProgressMap), () => {});
+        await this.writeDumpProgress();
       }
 
       nextObject = await cursor.next().catch(err => logger.error(`next object error ${err}`));
@@ -54,23 +54,24 @@ class CollectionManager {
         break;
       }
 
-      dumpProgressMap[this.collection] = nextObject._id;
+      this.dumpProgress.token = nextObject._id;
       delete nextObject._id;
       bulkOp.push({
         index:  {
           _index: this.elasticManager.mappings[this.collection].index,
           _type: this.elasticManager.mappings[this.collection].type,
-          _id: dumpProgressMap[this.collection],
+          _id: this.dumpProgress.token,
           _parent: nextObject[this.elasticManager.mappings[this.collection].parentId]
         }
       });
       bulkOp.push(nextObject);
     }
-    requestCount += (bulkOp.length/2);
-    logger.info(`${this.collection} FINAL request progress: ${requestCount}/${count}`);
+    this.dumpProgress.count += (bulkOp.length/2);
+    logger.info(`${this.collection} FINAL request progress: ${this.dumpProgress.count}/${count}`);
     await currentBulkRequest;
     await this.elasticManager.sendBulkRequest(bulkOp); // last bits
-    fs.writeFile('./dumpProgress.json', JSON.stringify(dumpProgressMap));
+    this.resetDumpProgress();
+    await this.writeDumpProgress();
     logger.info('done');
   }
 
@@ -145,13 +146,9 @@ class CollectionManager {
     this.writeResumeToken();
   }
 
-  hasResumeToken() {
-    return !!this.resumeToken;
-  }
-
   async getResumeToken() {
     if (!this.resumeToken) {
-      if (this.resumeTokenCollection) {
+      if (CollectionManager.resumeTokenCollection) {
         await this.getResumeTokenFromCollection();
       } else {
         this.getResumeTokenFromFile();
@@ -163,7 +160,7 @@ class CollectionManager {
 
   async getResumeTokenFromCollection() {
     try {
-      const { token } = await this.db.collection(this.resumeTokenCollection).findOne({ _id: this.collection })
+      const { token } = await this.db.collection(CollectionManager.resumeTokenCollection).findOne({ _id: this.collection });
       this.resumeToken = token;
     } catch (err) {
       logger.debug(`resumeToken for ${this.collection} could not be retrieved from database`);
@@ -180,30 +177,80 @@ class CollectionManager {
     }
   }
 
-  getDumpProgress() {
-    if (!fs.existsSync('./dumpProgress.json')) {
-      dumpProgressMap[this.collection] = ObjectId('000000000000000000000000');
-      return false;
+  async getDumpProgress() {
+    if (!this.dumpProgress) {
+      if (CollectionManager.dumpProgressCollection) {
+        await this.getDumpProgressFromCollection();
+      } else {
+        this.getDumpProgressFromFile();
+      }
     }
 
-    dumpProgressMap = JSON.parse(fs.readFileSync('./dumpProgress.json'));
-    if (dumpProgressMap[this.collection]) {
-      dumpProgressMap[this.collection] = ObjectId(dumpProgressMap[this.collection]);
-      return true;
-    }
-    else {
-      dumpProgressMap[this.collection] = ObjectId('000000000000000000000000');
-      return false;
-    }
+    return this.dumpProgress;
+  }
 
+  getDumpProgressFromFile() {
+    try {
+      console.log('dump prog - ');
+      this.dumpProgress = JSON.parse(fs.readFileSync(`./dumpProgress/${this.collection}`, 'utf8'));
+    } catch (err) {
+      this.resetDumpProgress();
+    }
+  }
+
+  async writeDumpProgress() {
+    if (CollectionManager.dumpProgressCollection) {
+      await this.writeDumpProgressToCollection();
+    } else {
+      this.writeDumpProgressToFile();
+    }
   }
 
 
-  writeResumeToken() {
+  writeDumpProgressToFile() {
+    fs.writeFileSync(`./dumpProgress/${this.collection}`, JSON.stringify(this.dumpProgress));
+    logger.debug(`dumpProgress for collection ${this.collection} saved to disk`);
+  }
+
+  async writeDumpProgressToCollection() {
+    try {
+      await this.db.collection(CollectionManager.dumpProgressCollection).updateOne(
+        { _id: this.collection },
+        { $set: { token: this.dumpProgress.token, count: this.dumpProgress.count }},
+        { upsert: true },
+      );
+      logger.debug(`resumeToken for collection ${this.collection} saved to database`);
+    } catch (err) {
+      logger.debug(`resumeToken for collection ${this.collection} could not be saved to database`);
+    }
+  }
+
+  resetDumpProgress() {
+    this.dumpProgress = {
+      token: ObjectId('000000000000000000000000'),
+      count: 0
+    }
+  }
+
+  async getDumpProgressFromCollection() {
+    try {
+      const dumpProgress = await this.db.collection(CollectionManager.dumpProgressCollection).findOne({ _id: this.collection });
+      this.dumpProgress = {
+        token: dumpProgress.token,
+        count: dumpProgress.count
+      };
+    } catch (err) {
+      logger.debug(`dumpProgress for ${this.collection} could not be retrieved from database`);
+      this.resetDumpProgress();
+    }
+  }
+
+
+  async writeResumeToken() {
     if (!this.resumeToken) return;
 
-    if (this.resumeTokenCollection) {
-      this.writeResumeTokenToCollection()
+    if (CollectionManager.resumeTokenCollection) {
+      await this.writeResumeTokenToCollection();
     } else {
       this.writeResumeTokenToFile();
     }
@@ -215,9 +262,9 @@ class CollectionManager {
     logger.debug(`resumeToken for collection ${this.collection} saved to disk`);
   }
 
-  writeResumeTokenToCollection() {
+  async writeResumeTokenToCollection() {
     try {
-      this.db.collection(this.resumeTokenCollection).updateOne(
+      await this.db.collection(CollectionManager.resumeTokenCollection).updateOne(
         { _id: this.collection },
         { $set: { token: this.resumeToken }},
         { upsert: true },
@@ -228,24 +275,19 @@ class CollectionManager {
     }
   }
 
-  removeResumeToken() {
-    this.resumeToken = null;
-    if(fs.existsSync(`./resumeTokens/${this.collection}`)) fs.unlink(`./resumeTokens/${this.collection}`);
-  }
-
   static pauseDump() {
-    if (!pauseDump.promise) {
-      pauseDump.promise = new Promise((resolve, reject) => {
-        pauseDump.resolve = resolve;
+    if (!CollectionManager.dumpPause.promise) {
+      CollectionManager.dumpPause.promise = new Promise((resolve) => {
+        CollectionManager.dumpPause.resolve = resolve;
       });
     }
   }
 
   static resumeDump() {
-    if (pauseDump.promise) {
-      pauseDump.resolve();
-      pauseDump.promise = null;
-      pauseDump.resolve = null;
+    if (CollectionManager.dumpPause.promise) {
+      CollectionManager.dumpPause.resolve();
+      CollectionManager.dumpPause.promise = null;
+      CollectionManager.dumpPause.resolve = null;
     }
   }
 
