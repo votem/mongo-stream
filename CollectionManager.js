@@ -30,8 +30,7 @@ class CollectionManager {
     let startTime = new Date();
     let currentBulkRequest = Promise.resolve();
 
-    // TODO: the params in this for loop are nonsense, we should turn this into a while loop, but I don't want to rock the boat in this commit
-    for (let i = 0; i < count; i++) {
+    while (await cursor.hasNext()) {
       if (CollectionManager.dumpPause.promise) {
         logger.info('Dump pause signal received');
         await CollectionManager.dumpPause.promise;
@@ -191,7 +190,6 @@ class CollectionManager {
 
   getDumpProgressFromFile() {
     try {
-      console.log('dump prog - ');
       this.dumpProgress = JSON.parse(fs.readFileSync(`./dumpProgress/${this.collection}`, 'utf8'));
     } catch (err) {
       this.resetDumpProgress();
