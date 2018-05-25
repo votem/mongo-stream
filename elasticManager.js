@@ -1,5 +1,6 @@
 const elasticsearch = require('elasticsearch');
 const logger = new (require('service-logger'))(__filename);
+const util = require('./util');
 
 class ElasticManager {
   constructor(elasticOpts, mappings, bulkSize) {
@@ -48,7 +49,9 @@ class ElasticManager {
           _index: this.mappings[changeStreamObj.ns.coll].index,
           _type: this.mappings[changeStreamObj.ns.coll].type,
           _id: esId,
-          _parent: esReadyDoc[this.mappings[changeStreamObj.ns.coll].parentId]
+          _parent: esReadyDoc[this.mappings[changeStreamObj.ns.coll].parentId],
+          _versionType: this.mappings[changeStreamObj.ns.coll].versionType,
+          _version: util.getVersionAsInteger(esReadyDoc[this.mappings[changeStreamObj.ns.coll].versionField])
         }
       });
     this.bulkOp.push(esReadyDoc);
@@ -57,8 +60,8 @@ class ElasticManager {
   async deleteDoc(changeStreamObj) {
     const esId = changeStreamObj.documentKey._id.toString(); // convert mongo ObjectId to string
 
-    const parentId = await this.findParentId(this.mappings[changeStreamObj.ns.coll], esId).catch((err) => {
-      logger.error(`error finding parentId in delete: ${err}`);
+    const { parentId, version } = await this.getExistingDoc(this.mappings[changeStreamObj.ns.coll], esId).catch((err) => {
+      logger.error(`error finding existing document in delete: ${err}`);
     });
 
     this.bulkOp.push({
@@ -66,25 +69,30 @@ class ElasticManager {
         _index: this.mappings[changeStreamObj.ns.coll].index,
         _type: this.mappings[changeStreamObj.ns.coll].type,
         _id: esId,
-        _parent: parentId
+        _parent: parentId,
+        _versionType: this.mappings[changeStreamObj.ns.coll].versionType,
+        _version: util.incrementVersionForDeletion(version),
       }
     });
   }
 
-//find a parent Id of a document by searching for the document and pulling that Id out.
-//returns null if the collection is not a child collection or does not contain a document with the given Id.
-  async findParentId(collection, childId){
-    let doc = await this.esClient.search({
-      index: collection.index,
-      type: collection.type,
-      q: `_id:${childId}`
-    });
+  async getExistingDoc(collection, id) {
     try {
-      return doc.hits.hits[0]._parent
+      const doc = await this.esClient.search({
+        index: collection.index,
+        type: collection.type,
+        q: `_id:${id}`,
+        size: 1,
+        version: true,
+      });
+
+      return {
+        parentId: doc.hits.hits[0]._parent || null,
+        version: doc.hits.hits[0]._version || null,
+      }
     } catch(err) {
-      logger.error(`cannot find item of type ${collection.type} with id ${childId}`);
+      logger.error(`cannot find item of type ${collection.type} with id ${id}`);
     }
-    return null;
   }
 
   // delete all docs in ES before dumping the new docs into it
@@ -96,7 +104,8 @@ class ElasticManager {
         index: this.mappings[collectionName].index,
         type: this.mappings[collectionName].type,
         size: this.bulkSize,
-        scroll: '1m'
+        scroll: '1m',
+        version: true,
       });
     }
     catch (err) {
@@ -115,7 +124,9 @@ class ElasticManager {
             _index: this.mappings[collectionName].index,
             _type: this.mappings[collectionName].type,
             _id: dumpDocs[j]._id,
-            _parent: dumpDocs[j]._parent
+            _parent: dumpDocs[j]._parent,
+            _versionType: this.mappings[collectionName].versionType,
+            _version: util.incrementVersionForDeletion(dumpDocs[j]._version),
           }
         });
       }
