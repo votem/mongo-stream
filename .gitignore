@@ -4,6 +4,7 @@ node_modules
 *.env
 *.pem
 resumeTokens/*
+dumpProgress/*
 docker-compose.yaml
 package-lock.json
 config/*
