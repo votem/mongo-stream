@@ -5,12 +5,11 @@ const app = express();
 const bodyParser = require('body-parser');
 app.use(bodyParser.json()); // for parsing application/json
 const logger = new (require('service-logger'))(__filename);
-const MongoStream = require('./mongo-stream');
-const CollectionManager = require('./CollectionManager');
+const MongoStream = require('./lib/mongo-stream');
+const CollectionManager = require('./lib/CollectionManager');
 let mongoStream;
 
-const config = require('./configParser');
-CollectionManager.initializeStaticVariables(config.dumpProgressCollection, config.resumeTokenCollection);
+const config = require('./lib/configParser');
 
 // returns the status of all collectionManagers currently running
 app.get('/', (request, response) => {
