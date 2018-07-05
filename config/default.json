@@ -24,7 +24,9 @@
       "index": "test",
       "type": "$self",
       "parent": "parentCollectionName",
-      "parentId": "childFieldPointingToParent"
+      "parentId": "childFieldPointingToParent",
+      "versionType": "elasticSearchVersionType",
+      "versionField": "fieldNameToUseForVersioning"
     }
   },
   "logLevel": "info"
