@@ -45,7 +45,7 @@ app.post('/collection-manager?', (request, response) => {
     .then((results) => {
       response.send(results);
     }).catch(err => {
-      logger.error(`Error posting collection-manager: ${err}`);
+      logger.error(`Error posting collection-manager:`, err);
       response.send(err);
     });
 });
@@ -83,7 +83,7 @@ app.delete('/collection-manager/:collections?', (request, response) => {
 
 app.listen(config.adminPort, (err) => {
   if (err) {
-    return logger.error(`Error listening on ${config.adminPort}: ${err}`);
+    return logger.error(`Error listening on ${config.adminPort}:`, err);
   }
 
   MongoStream.init(config)
@@ -92,7 +92,7 @@ app.listen(config.adminPort, (err) => {
       mongoStream = stream;
     })
     .catch((err) => {
-      logger.error(`Error Creating MongoStream: ${err.message}`);
+      logger.error(`Error Creating MongoStream:`, err);
       process.exit();
     });
   logger.info(`server is listening on port ${config.adminPort}`);
