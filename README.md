@@ -1,5 +1,7 @@
 # Mongo Stream
 
+![logotype_1a](https://user-images.githubusercontent.com/36637989/42541267-9785db22-8499-11e8-931a-c84733d07a45.png)
+
 Mongo Stream is a Node.js project that aims to make use of Mongo 3.6+ change-streams
 to synchronize data between Mongodb and ElasticSearch
 
