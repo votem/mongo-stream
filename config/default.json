@@ -26,7 +26,10 @@
       "parent": "parentCollectionName",
       "parentId": "childFieldPointingToParent",
       "versionType": "elasticSearchVersionType",
-      "versionField": "fieldNameToUseForVersioning"
+      "versionField": "fieldNameToUseForVersioning",
+      "transformations": [ 
+        { "op": "move", "from": "/hello", "path": "/transformed" }
+      ]
     }
   },
   "logLevel": "info"
