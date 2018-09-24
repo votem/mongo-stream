@@ -24,6 +24,7 @@
     "commander": "2.13.0",
     "elasticsearch": "14.1.0",
     "express": "4.16.2",
+    "json-patch": "0.7.0",
     "mongodb": "3.1.0",
     "service-logger": "1.0.3"
   }
