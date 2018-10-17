@@ -1,6 +1,6 @@
 {
   "name": "mongo-stream",
-  "version": "0.1.0",
+  "version": "1.4.3",
   "description": "Sync data from Mongodb to Elasticsearch",
   "main": "server.js",
   "scripts": {
