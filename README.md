@@ -37,12 +37,11 @@ Feel free to submit pull requests. If you'd like to contribute towards closing a
 
 ## Credits
 
-This software was developed as an internal project at Everyone Counts, Inc.
+This software was developed as an internal project at Votem Corp.
 
-Everyone Counts provides elegantly simple software and exceptional services to upgrade
-the election process. The eLect brand offers unrivaled web-based voting products including
-Voter Registration, Online Voting, and Remote Accessible Voting. The product suite
-is designed to address pain points facing election officials today, including security,
-accessibility, cost, and sustainability.
+Votem bolsters trust, access, and transparency in elections with a core suite
+of products spanning voter registration, mobile and electronic ballot marking
+for military and overseas voters and voters with accessibility considerations,
+and election management systems focused on security and verifiable voting.
 
-For more information, visit https://everyonecounts.com.
+For more information, visit https://votem.com.
