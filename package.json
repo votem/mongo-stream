@@ -26,6 +26,7 @@
     "express": "4.16.2",
     "json-patch": "0.7.0",
     "lodash": "4.17.4",
+    "lodash-deep": "2.0.0",
     "mongodb": "3.1.0",
     "service-logger": "1.0.3"
   }
