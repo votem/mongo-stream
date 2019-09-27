@@ -26,10 +26,43 @@ app.get('/', (request, response) => {
   response.send(responseBody);
 });
 
+// TODO: completely untested
+app.post('/sync-managers', (request, response) => {
+  const collectionsSynced = mongoStream.syncCollectionManagers(request.body);
+  response.send(collectionsSynced);
+});
+
 // returns the mappings of all collectionManagers currently running
-app.get('/mappings', (request, response) => {
+app.get('/es-mappings', (request, response) => {
   response.send(mongoStream.elasticManager.mappings);
 });
+
+app.get('/es-mappings/:collection', (request, response) => {
+  response.send(mongoStream.elasticManager.mappings[request.params.collection]);
+});
+
+app.get('/load-es-mappings', (request, response) => {
+  mongoStream.elasticManager.loadESFields().then((r) => response.send(r));
+});
+
+// TODO: this probably is skipping some steps
+app.post('/load-es-mappings', (request, response) => {
+  logger.info(request.body);
+
+  _.forEach(request.body.mappings, (colMap, col) => {
+    // mongoStream.elasticManager.mappings[col].fields = [];
+    const fields = [];
+
+    _.deepMapValues(colMap.properties, (val,path) => {
+      fields.push(path.replace(/properties\./g, '').replace(/\.\w+$/, '') );
+    });
+
+    mongoStream.elasticManager.mappings[col].fields  = _.filter(_.uniq(fields), (f) => !f.includes('_')).sort();
+  });
+
+  response.send(_.mapValues(mongoStream.elasticManager.mappings, 'fields'));
+});
+
 
 app.post('/collection-manager?', (request, response) => {
   logger.info(request.body);
@@ -38,7 +71,8 @@ app.post('/collection-manager?', (request, response) => {
     dump: request.body.dump,
     ignoreResumeTokens: request.body.ignoreResumeTokens,
     ignoreDumpProgress: request.body.ignoreDumpProgress,
-    watch: request.body.watch
+    watch: request.body.watch,
+    loadESMappings: request.body.loadESMappings
   };
 
   return mongoStream.addCollectionManager(collections, managerOptions)
